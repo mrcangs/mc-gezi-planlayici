@@ -1,9 +1,11 @@
 // Firebase web yapılandırması (Firebase Console → Proje ayarları → Web uygulaması).
 // Bu değerler gizli değildir; güvenlik database.rules.json ile sağlanır.
 window.FIREBASE_CONFIG = {
-  apiKey: '',
-  authDomain: '',
-  databaseURL: '',
-  projectId: '',
-  appId: ''
+  apiKey: 'AIzaSyBcEVPwhZzPvZQEoloXAN8PvP07q8L2wWc',
+  authDomain: 'mc-gezi-planlayici.firebaseapp.com',
+  databaseURL: 'https://mc-gezi-planlayici-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId: 'mc-gezi-planlayici',
+  storageBucket: 'mc-gezi-planlayici.firebasestorage.app',
+  messagingSenderId: '288108954689',
+  appId: '1:288108954689:web:f3b3752896d3efd39572c0'
 };
