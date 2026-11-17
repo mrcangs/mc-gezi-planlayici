@@ -1,0 +1,6 @@
+# Kişisel / gizli dosyalar repoya girmez
+.vscode/
+*.local.json
+Documents/
+*.pdf
+.trip-key

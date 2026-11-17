@@ -1,0 +1,144 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins/' + auth.uid).val() === true)",
+        ".write": "auth != null && root.child('admins/' + auth.uid).val() === true",
+        ".validate": "newData.isBoolean()"
+      }
+    },
+
+    "allowlist": {
+      ".read": "auth != null && root.child('admins/' + auth.uid).val() === true",
+      "$ek": {
+        ".read": "auth != null && auth.token.email_verified === true && auth.token.email.toLowerCase().replace('.', ',') === $ek",
+        ".write": "auth != null && root.child('admins/' + auth.uid).val() === true",
+        ".validate": "newData.hasChildren(['limit']) && newData.child('limit').isNumber() && newData.child('limit').val() >= 0 && newData.child('limit').val() <= 50"
+      }
+    },
+
+    "users": {
+      ".read": "auth != null && root.child('admins/' + auth.uid).val() === true",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "profile": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 100"
+        },
+        "planCount": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() === (data.exists() ? data.val() : 0) + 1 && auth.token.email_verified === true && newData.val() <= root.child('allowlist/' + auth.token.email.toLowerCase().replace('.', ',') + '/limit').val()"
+        },
+        "trips": {
+          "$t": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "root.child('trips/' + $t + '/members/' + $uid).exists() || newData.parent().parent().parent().parent().child('trips/' + $t + '/members/' + $uid).exists()"
+          }
+        }
+      }
+    },
+
+    "trips": {
+      "$t": {
+        ".read": "auth != null && data.child('members/' + auth.uid).exists()",
+
+        "meta": {
+          ".write": "auth != null && ((!data.exists() && newData.child('owner').val() === auth.uid && newData.parent().parent().parent().child('users/' + auth.uid + '/planCount').val() === (root.child('users/' + auth.uid + '/planCount').exists() ? root.child('users/' + auth.uid + '/planCount').val() : 0) + 1) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['title', 'owner']) && newData.child('title').isString() && newData.child('title').val().length <= 80"
+        },
+        "invite": {
+          ".write": "auth != null && newData.parent().child('meta/owner').val() === auth.uid",
+          ".validate": "newData.hasChildren(['code']) && newData.child('code').isString() && newData.child('code').val().length >= 10"
+        },
+        "def": {
+          ".write": "auth != null && newData.parent().child('meta/owner').val() === auth.uid"
+        },
+        "members": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('trips/' + $t + '/meta/owner').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['code']) && newData.child('code').val() === newData.parent().parent().child('invite/code').val()",
+            "personId": {
+              ".validate": "newData.isString() && newData.parent().parent().parent().child('claims/' + newData.val()).val() === $uid && (!data.exists() || data.val() === newData.val())"
+            }
+          }
+        },
+        "claims": {
+          "$pid": {
+            ".write": "auth != null && newData.parent().parent().child('members/' + auth.uid).exists() && (!data.exists() || data.val() === auth.uid)",
+            ".validate": "newData.isString() && newData.val() === auth.uid && newData.parent().parent().child('def/people/' + $pid).exists()"
+          }
+        },
+
+        "slots": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/slots').exists()",
+          "$day": {
+            "$slot": {
+              "$item": {
+                ".validate": "newData.hasChildren(['activityId', 'name', 'addedBy']) && newData.child('name').isString() && newData.child('name').val().length <= 120",
+                "files": {
+                  "$fid": {
+                    ".validate": "newData.hasChildren(['name', 'type', 'size']) && !newData.child('data').exists()"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "slot_votes": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/slot_votes').exists()",
+          "$item": { "$p": { ".validate": "newData.isString() && newData.val().matches(/^(up|down)$/)" } }
+        },
+        "decisions": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/decisions').exists()",
+          "$dec": { "$p": { ".validate": "newData.isString() && newData.val().length <= 40" } }
+        },
+        "custom_activities": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/custom_activities').exists()",
+          "$id": {
+            ".validate": "newData.hasChildren(['name', 'addedBy']) && newData.child('name').isString() && newData.child('name').val().length <= 80 && (!newData.child('desc').exists() || newData.child('desc').val().length <= 300)"
+          }
+        },
+        "checklist": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/checklist').exists()",
+          "$id": { ".validate": "newData.hasChildren(['done', 'by'])" }
+        },
+        "discussions": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/discussions').exists()",
+          "$msg": {
+            ".validate": "newData.hasChildren(['user', 'text', 'timestamp']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 500 && newData.child('user').isString() && newData.child('user').val().length <= 40"
+          }
+        },
+        "reviews": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/reviews').exists()",
+          "$act": {
+            ".validate": "$act.length <= 80",
+            "$p": {
+              ".validate": "newData.hasChildren(['went', 'at'])",
+              "went": { ".validate": "newData.isBoolean()" },
+              "rating": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 5 && newData.val() % 1 === 0" },
+              "kids": { ".validate": "newData.isString() && newData.val().matches(/^(loved|ok|no)$/)" },
+              "again": { ".validate": "newData.isBoolean()" },
+              "note": { ".validate": "newData.isString() && newData.val().length <= 300" },
+              "at": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    },
+
+    "trip_files": {
+      "$t": {
+        ".read": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid).exists()",
+        "$fid": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists()",
+          ".validate": "newData.hasChildren(['data']) && newData.child('data').isString() && newData.child('data').val().length <= 4500000"
+        }
+      }
+    }
+  }
+}
