@@ -9,3 +9,7 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: '288108954689',
   appId: '1:288108954689:web:f3b3752896d3efd39572c0'
 };
+
+// İsteğe bağlı: YouTube Data API anahtarı. Varsa AI, video açıklamasıyla birlikte en çok beğenilen yorumları da okur.
+// Google Cloud Console'da yalnızca bu sitenin adresi (HTTP referrer) ve "YouTube Data API v3" ile sınırlandırılmalıdır.
+window.YOUTUBE_API_KEY = '';

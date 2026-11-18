@@ -116,7 +116,23 @@
         "custom_activities": {
           ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists() || newData.parent().child('meta/owner').val() === auth.uid && !root.child('trips/' + $t + '/custom_activities').exists()",
           "$id": {
-            ".validate": "newData.hasChildren(['name', 'addedBy']) && newData.child('name').isString() && newData.child('name').val().length <= 80 && (!newData.child('desc').exists() || newData.child('desc').val().length <= 300)"
+            ".validate": "newData.hasChildren(['name', 'addedBy']) && newData.child('name').isString() && newData.child('name').val().length <= 80 && (!newData.child('desc').exists() || newData.child('desc').val().length <= 300)",
+            "url": { ".validate": "newData.isString() && newData.val().beginsWith('http') && newData.val().length <= 500" },
+            "resUrl": { ".validate": "newData.isString() && newData.val().beginsWith('http') && newData.val().length <= 500" },
+            "addr": { ".validate": "newData.isString() && newData.val().length <= 160" },
+            "info": { ".validate": "newData.isString() && newData.val().length <= 160" },
+            "resNote": { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "res": { ".validate": "newData.isBoolean()" },
+            "ai": { ".validate": "newData.isBoolean()" }
+          }
+        },
+        "tasks": {
+          ".write": "auth != null && root.child('trips/' + $t + '/members/' + auth.uid + '/personId').exists()",
+          "$id": {
+            ".validate": "newData.hasChildren(['text', 'by']) && newData.child('text').isString() && newData.child('text').val().length <= 160 && newData.child('by').isString() && newData.child('by').val().length <= 40",
+            "url": { ".validate": "newData.isString() && newData.val().beginsWith('http') && newData.val().length <= 500" },
+            "note": { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "actName": { ".validate": "newData.isString() && newData.val().length <= 80" }
           }
         },
         "checklist": {

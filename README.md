@@ -32,10 +32,21 @@ Yeni plan formunda önce ülke, sonra şehir seçilir. İki alan da yazarak filt
 ## AI önerileri (Claude)
 Plan ekranındaki **AI** penceresinin üç sekmesi var:
 - **Öner:** Claude bu gezi için mekan ve aktivite önerir. İsteğe bağlı olarak ne aradığınız yazılabilir.
-- **Video / link:** YouTube videosu, blog linki ya da yapıştırılan bir metinden mekanları çıkarır. Claude videoyu izleyemez. Sayfadaki başlığı, açıklamayı ve bölüm başlıklarını okur (`web_fetch`), gerekirse web'de arar (`web_search`). Sonra bulduklarını havuz biçimine dönüştürür. YouTube linklerinde kapak resmi ve başlık önizlenir.
+- **Liste / link:** Yapıştırılan bir listeden, YouTube ya da Instagram linkinden, web sayfasından ve eklenen ekran görüntülerinden (en fazla 8) mekanları çıkarır. Claude videoyu izleyemez ve sesini işleyemez. Okuduğu kaynaklar şunlar:
+  - **YouTube:** başlık, açıklama, bölümler. `js/config.js`'te `YOUTUBE_API_KEY` tanımlıysa en çok beğenilen 100 yorum da okunur. Kapak resmi ve başlık önizlenir.
+  - **Instagram:** Giriş yapmadan genelde açılmaz ve resmi API başkasının gönderisini okumaya izin vermez. En iyi sonuç için gönderinin, açıklamanın ve yorumların ekran görüntüsü eklenir; arayüz Instagram linki görünce bunu önerir.
+  - **Liste / metin:** Doğrudan dönüştürülür; web araması yapılmaz.
+
+  Linkler için Claude `web_fetch` ve `web_search` kullanır.
 - **Pratik:** Ulaşım, para, güvenlik gibi konularda 8–12 madde hazırlar. Yalnızca plan sahibine açıktır.
 
-Gelen önerilerden istenenler işaretlenip havuza eklenir. Plan sahibininkiler havuza, diğer üyelerinkiler "Ekip önerisi" olarak eklenir. AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
+Gelen önerilerden istenenler işaretlenip havuza eklenir.
+
+**Web'den doğrulama** (varsayılan açık, mekan başı yaklaşık 0,05 $):
+- Eklemeden önce Claude seçilen her mekan için resmi siteyi, adresi, bir satırlık bilgiyi ve rezervasyon ya da bilet gerekip gerekmediğini arar.
+- Rezervasyon gerekenler, rezervasyon linki ve notuyla birlikte **Hazırlık → Rezervasyonlar** listesine görev olarak eklenir (`trips/<id>/tasks`).
+- Kartlarda bilgi satırı, rezervasyon notu, **Web sitesi / Rezervasyon / Harita** düğmeleri görünür. Harita linki ad ve adresle Google Maps'te arar.
+- "Kendi önerin" formuyla elle eklenen mekanlarda da **AI ile tamamla** seçeneği vardır. Mekan hemen eklenir; bilgiler arka planda tamamlanır. Plan sahibininkiler havuza, diğer üyelerinkiler "Ekip önerisi" olarak eklenir. AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
 
 **Anahtar (herkes kendi anahtarını kullanır):**
 - Anahtar ana sayfadaki **Claude API anahtarı** kutusuna ya da AI penceresine bir parolayla birlikte girilir.
@@ -55,6 +66,15 @@ Gelen önerilerden istenenler işaretlenip havuza eklenir. Plan sahibininkiler h
 - **Plan sahibi:** seçtiği öneriler mekan havuzuna eklenir ve pratik bilgileri plana kaydedebilir.
 - **Diğer üyeler:** seçtikleri öneriler havuza "Ekip önerisi" olarak eklenir.
 - AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
+
+### YouTube yorumları için anahtar (isteğe bağlı, bir kez)
+1. [Google Cloud Console](https://console.cloud.google.com/) üst menüden **mc-gezi-planlayici** projesini seç. Bu, Firebase projesinin kendisidir.
+2. **APIs & Services → Library → YouTube Data API v3 → Enable**.
+3. **APIs & Services → Credentials → Create credentials → API key**.
+4. Anahtarı düzenle:
+   - **Application restrictions → Websites** altına `https://mrcangs.github.io/*` ve `http://localhost:8000/*` ekle.
+   - **API restrictions → Restrict key → YouTube Data API v3** seç.
+5. Anahtarı `js/config.js` içindeki `window.YOUTUBE_API_KEY = ''` satırına yaz. Anahtar herkese açık durur; adres ve API kısıtı onu korur. Ücretsiz kota günde 10.000 birimdir ve video başına yaklaşık 2 birim harcanır.
 
 ## Profil fotoğrafları
 Plana katılan herkesin Google profil fotoğrafı üyelik kaydına (`trips/<id>/members/<uid>/photo`) yazılır ve avatarlarda gösterilir. Fotoğraf yoksa ya da yüklenemezse renkli baş harf görünür. Yalnızca `googleusercontent.com` adresleri kabul edilir.

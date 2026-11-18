@@ -65,11 +65,10 @@
       }, x);
     });
     const catIcon = cat => (CATEGORIES_ALL.find(c => c.key === cat) || { icon: 'fa-star' }).icon;
-    POOL = arr(d.pool).filter(a => safeId(a.id) && a.name).map(a => Object.assign({ area: '', desc: '' }, a, {
+    POOL = arr(d.pool).filter(a => safeId(a.id) && a.name).map(a => Object.assign({ area: '', desc: '' }, a, extraFields(a), {
       cat: CATEGORIES_ALL.some(c => c.key === a.cat) ? a.cat : 'custom',
       icon: safeIcon(a.icon, catIcon(a.cat)),
       best: arr(a.best),
-      url: /^https?:\/\//.test(a.url || '') ? a.url : '',
       ig: /^[A-Za-z0-9._]{1,40}$/.test(a.ig || '') ? a.ig : ''
     }));
     FIXED_EVENTS = {};
@@ -88,13 +87,24 @@
   }
   const CATEGORIES_ALL = App.CATEGORIES;
 
-  // Kart içindeki web sitesi / harita kısayolları
+  // Havuz ve kişisel önerilerde ortak ek alanlar (AI doğrulamasından): süzülerek okunur
+  const httpsUrl = u => /^https:\/\/[^\s"'<>]{4,500}$/.test(u || '') ? u : (/^http:\/\/[^\s"'<>]{4,500}$/.test(u || '') ? u : '');
+  const str = (v, n) => typeof v === 'string' ? v.slice(0, n) : (v && typeof v === 'object' && 'tr' in v ? L(v) : '');
+  function extraFields(a) {
+    return {
+      url: httpsUrl(a.url), addr: str(a.addr, 160), info: str(a.info, 160),
+      resUrl: httpsUrl(a.resUrl), resNote: str(a.resNote, 200), res: !!(a.res || a.resUrl), ai: !!a.ai
+    };
+  }
+
+  // Kart içindeki web sitesi / rezervasyon / harita kısayolları
   function linkButtons(a) {
     const cls = 'h-8 px-2.5 rounded-lg btn-ghost inline-flex items-center gap-1.5 text-xs font-bold';
     const web = a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="${cls}" aria-label="${esc(a.name)} · ${esc(T('link.web'))}"><i class="fa-solid fa-globe accent" aria-hidden="true"></i>${esc(T('link.web'))}</a>` : '';
+    const book = a.resUrl ? `<a href="${esc(a.resUrl)}" target="_blank" rel="noopener" class="${cls}" aria-label="${esc(a.name)} · ${esc(T('link.book'))}"><i class="fa-solid fa-ticket" style="color:#be123c" aria-hidden="true"></i>${esc(T('link.book'))}</a>` : '';
     const map = `<a href="${esc(mapsFor(a))}" target="_blank" rel="noopener" class="${cls}" aria-label="${esc(a.name)} · Google Maps"><i class="fa-solid fa-location-dot terra" aria-hidden="true"></i>${esc(T('link.map'))}</a>`;
     const ig = a.ig ? `<a href="https://www.instagram.com/${encodeURIComponent(a.ig)}/" target="_blank" rel="noopener" class="${cls}" aria-label="${esc(a.name)} · Instagram"><i class="fa-brands fa-instagram" style="color:#d62976" aria-hidden="true"></i>Instagram</a>` : '';
-    return `<div class="flex flex-wrap gap-1.5 mt-2">${web}${ig}${map}</div>`;
+    return `<div class="flex flex-wrap gap-1.5 mt-2">${web}${book}${ig}${map}</div>`;
   }
 
   const MAX_FILE_MB = 3;
@@ -139,7 +149,7 @@
     if (!id) return null;
     if (id.startsWith('custom:')) {
       const c = customActs()[id.slice(7)];
-      return c ? { id, name: c.name, area: c.area || '', cat: c.cat || 'custom', desc: c.desc || '', icon: 'fa-star', res: false, kid: false, best: [], custom: true, addedBy: c.addedBy } : null;
+      return c ? Object.assign({ id, name: c.name, area: c.area || '', cat: c.cat || 'custom', desc: c.desc || '', icon: 'fa-star', kid: false, best: [], custom: true, addedBy: c.addedBy }, extraFields(c)) : null;
     }
     return POOL.find(a => a.id === id) || null;
   }
@@ -508,12 +518,14 @@
         </div>
         <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
           <span class="tag tag-${esc(a.cat)}">${esc(catLabel)}</span>
-          ${a.res ? `<span class="tag tag-res"><i class="fa-solid fa-ticket" aria-hidden="true"></i> ${esc(T('pool.res'))}</span>` : ''}
+          ${a.res ? `<span class="tag tag-res" ${a.resNote ? `title="${esc(a.resNote)}"` : ''}><i class="fa-solid fa-ticket" aria-hidden="true"></i> ${esc(T('pool.res'))}</span>` : ''}
           ${a.kid ? '<span class="tag surface2 muted"><i class="fa-solid fa-child" aria-hidden="true"></i></span>' : ''}
           ${a.ai ? `<span class="tag surface2 muted" title="${esc(T('ai.madeBy'))}"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> AI</span>` : ''}
           ${a.area ? `<span class="text-[11px] muted truncate max-w-full">${esc(a.area)}</span>` : ''}
         </div>
-        <p class="text-xs muted mt-1 leading-snug [overflow-wrap:anywhere]">${linkify(a.desc)}</p>
+        ${a.info ? `<p class="text-xs font-semibold mt-1 leading-snug">${esc(a.info)}</p>` : ''}
+        ${a.desc && a.desc !== a.info ? `<p class="text-xs muted mt-1 leading-snug [overflow-wrap:anywhere]">${linkify(a.desc)}</p>` : ''}
+        ${a.res && a.resNote ? `<p class="text-[11px] mt-1 leading-snug" style="color:#be123c"><i class="fa-solid fa-ticket" aria-hidden="true"></i> ${esc(a.resNote)}</p>` : ''}
         ${listTips(a.id)}
         ${linkButtons(a)}
       </div>
@@ -615,32 +627,52 @@
   }
 
   function renderChecklist() {
-    if (!CHECKLIST.length) { $('#checklist').innerHTML = ''; return; }
+    // Plan şablonundaki maddeler + ekibin eklediği görevler (ör. AI'ın bulduğu rezervasyonlar: tasks/<id>)
+    const tasks = Object.entries(D().tasks || {}).filter(([k, t]) => safeId(k) && t && t.text)
+      .sort((a, b) => (a[1].at || 0) - (b[1].at || 0))
+      .map(([k, t]) => ({ id: 'task_' + k, key: k, cat: T('check.resCat'), text: String(t.text).slice(0, 160), note: str(t.note, 200), url: httpsUrl(t.url), by: t.by, task: true }));
+    const items = CHECKLIST.concat(tasks);
+    if (!items.length) { $('#checklist').innerHTML = ''; return; }
     const done = D().checklist || {};
-    const n = CHECKLIST.filter(c => done[c.id] && done[c.id].done).length;
-    const cats = [...new Set(CHECKLIST.map(c => c.cat))];
+    const n = items.filter(c => done[c.id] && done[c.id].done).length;
+    const cats = [...new Set(items.map(c => c.cat))];
     $('#checklist').innerHTML = `<div class="surface rounded-2xl p-4">
       <div class="flex items-center justify-between mb-2">
         <h2 class="text-sm font-extrabold flex items-center gap-2"><i class="fa-solid fa-list-check accent" aria-hidden="true"></i> ${esc(T('check.title'))}</h2>
-        <span class="text-[11px] font-bold muted">${n}/${CHECKLIST.length}</span>
+        <span class="text-[11px] font-bold muted">${n}/${items.length}</span>
       </div>
-      <div class="h-1.5 rounded-full surface2 mb-3 overflow-hidden"><div class="h-full btn-accent" style="width:${Math.round(n / CHECKLIST.length * 100)}%"></div></div>
+      <div class="h-1.5 rounded-full surface2 mb-3 overflow-hidden"><div class="h-full btn-accent" style="width:${Math.round(n / items.length * 100)}%"></div></div>
       ${cats.map(cat => `<div class="mb-2">
         <p class="text-[10px] font-bold uppercase tracking-wide muted mb-1">${esc(cat)}</p>
-        ${CHECKLIST.filter(c => c.cat === cat).map(c => {
+        ${items.filter(c => c.cat === cat).map(c => {
           const st = done[c.id] || {};
           const by = person(st.by);
+          const canDel = c.task && (c.by === state.me || isOwner());
           return `<div class="flex items-center gap-1">
-            <button data-action="check" data-id="${c.id}" class="flex-1 min-w-0 flex items-center gap-2.5 py-2 text-left">
+            <button data-action="check" data-id="${esc(c.id)}" class="flex-1 min-w-0 flex items-center gap-2.5 py-2 text-left">
               <span class="w-5 h-5 shrink-0 rounded-md border-2 flex items-center justify-center ${st.done ? 'btn-accent border-transparent' : 'line'}">${st.done ? '<i class="fa-solid fa-check text-[10px]" aria-hidden="true"></i>' : ''}</span>
-              <span class="text-sm flex-1 ${st.done ? 'line-through muted' : ''}">${esc(c.text)}</span>
+              <span class="flex-1 min-w-0"><span class="block text-sm ${st.done ? 'line-through muted' : ''}">${esc(c.text)}</span>${c.note ? `<span class="block text-[11px] muted">${esc(c.note)}</span>` : ''}</span>
               ${st.done && by ? avatar(by.id, 'w-5 h-5 text-[9px]') : ''}
             </button>
             ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="w-9 h-9 shrink-0 rounded-lg inline-flex items-center justify-center accent" title="${esc(T('check.linkTitle'))}" aria-label="${esc(c.text)} · ${esc(T('check.linkTitle'))}"><i class="fa-solid fa-arrow-up-right-from-square text-xs" aria-hidden="true"></i></a>` : ''}
+            ${canDel ? `<button data-action="task-del" data-key="${esc(c.key)}" class="w-8 h-8 shrink-0 rounded-lg muted" aria-label="${esc(T('check.del'))}" title="${esc(T('check.del'))}"><i class="fa-solid fa-xmark text-xs" aria-hidden="true"></i></button>` : ''}
           </div>`;
         }).join('')}
       </div>`).join('')}
     </div>`;
+  }
+
+  // Rezervasyon gerektiren mekanlar için yapılacaklara görev (aynı mekana ikinci kez eklenmez)
+  function reservationTasks(places) {
+    const have = new Set(Object.values(D().tasks || {}).map(t => t && t.actName && normName(t.actName)));
+    const upd = {};
+    places.filter(p => p.res && !have.has(normName(p.name))).forEach(p => {
+      upd['tasks/' + tripRef.child('tasks').push().key] = App.clean({
+        text: T('check.resText', { name: p.name }).slice(0, 160), actName: p.name.slice(0, 80),
+        url: httpsUrl(p.resUrl) || httpsUrl(p.url) || null, note: (p.resNote || '').slice(0, 200) || null, by: state.me, at: TS()
+      });
+    });
+    return upd;
   }
 
   function renderPractical() {
@@ -1055,6 +1087,10 @@
           <label class="block"><span class="${lbl}">${esc(T('custom.area'))}</span><input name="area" maxlength="60" class="${inp}" placeholder="${esc(T('custom.areaPh'))}"></label>
           <label class="block"><span class="${lbl}">${esc(T('custom.cat'))}</span><select name="cat" class="${inp}">${CATEGORIES.map(c2 => `<option value="${c2.key}">${esc(c2.label)}</option>`).join('')}</select></label>
           <label class="block"><span class="${lbl}">${esc(T('custom.note'))}</span><textarea name="desc" maxlength="300" rows="3" class="${inp}" placeholder="${esc(T('custom.notePh'))}"></textarea></label>
+          ${s.review ? '' : AI.hasKey()
+            ? `<label class="flex items-start gap-2 text-xs rounded-xl surface2 p-3"><input type="checkbox" name="aiFill" checked class="mt-0.5">
+                <span><strong><i class="fa-solid fa-wand-magic-sparkles accent" aria-hidden="true"></i> ${esc(T('custom.ai'))}</strong><span class="block muted">${esc(T('custom.aiHelp'))}</span></span></label>`
+            : `<p class="text-[11px] muted"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(T('custom.aiOff'))}</p>`}
           <button type="submit" class="w-full h-12 rounded-xl btn-accent text-sm font-bold">${esc(T('custom.submit'))}</button>
         </form>`;
       return;
@@ -1145,6 +1181,7 @@
         name: p.name.trim().slice(0, 80), area: String(p.area || '').trim().slice(0, 60),
         cat: AI.CATS.includes(p.cat) ? p.cat : 'sight', icon: safeIcon(p.icon, 'fa-star'),
         desc_tr: String(p.desc_tr || '').trim().slice(0, 300), desc_es: String(p.desc_es || '').trim().slice(0, 300),
+        info: String(p.info || '').trim().slice(0, 160), addr: String(p.addr || '').trim().slice(0, 160),
         best: (Array.isArray(p.best) ? p.best : []).filter(k => slotKeys.has(k)),
         res: p.res === true, kid: p.kid === true,
         url: /^https:\/\/[^\s"'<>]{4,300}$/.test(p.url || '') ? p.url : '',
@@ -1167,8 +1204,8 @@
     let job;
     if (s.tab === 'extract') {
       const src = (s.source || '').trim();
-      if (!src) { const t = $('#aiSource'); if (t) t.focus(); return; }
-      job = AI.extract(ctx, src.slice(0, 8000));
+      if (!src && !(s.images || []).length) { const t = $('#aiSource'); if (t) t.focus(); return; }
+      job = AI.extract(ctx, { text: src.slice(0, 8000), images: (s.images || []).map(im => ({ media_type: im.media_type, data: im.data })) });
       job.ctl.onPhase = p => { s.loadPhase = p; const el = $('#aiLoadText'); if (el && state.sheet === s) el.textContent = T('ai.loadingShape'); };
     } else {
       job = AI.ask(s.tab === 'practical' ? AI.practicalRequest(ctx) : AI.placesRequest(ctx, (s.wish || '').trim().slice(0, 300), s.count || 15));
@@ -1199,29 +1236,81 @@
     });
   }
 
+  // Seçilenler: "web'den doğrula" açıksa önce Claude resmi site / adres / rezervasyonu arar, sonra yazılır
   function aiAddPlaces() {
     const s = state.sheet;
     const picked = (s.result || []).filter((p, i) => s.sel[i]);
-    if (!picked.length) return;
+    if (!picked.length || aiJob) return;
+    if (!s.verify) { writePlaces(picked); return; }
+    const job = AI.enrich(aiContext(), picked.map(p => ({ name: p.name, area: p.area })));
+    aiJob = job;
+    Object.assign(s, { phase: 'loading', verifying: true, started: Date.now(), err: '', errDetail: '', progress: '' });
+    job.ctl.onProgress = (i, n) => { s.progress = T('ai.verifyProgress', { i: Math.min(i + 8, n), n }); const el = $('#aiLoadSub'); if (el && state.sheet === s) el.textContent = s.progress; };
+    renderSheet(false);
+    clearInterval(aiClock);
+    aiClock = setInterval(() => { const el = $('#aiElapsed'); if (el && state.sheet === s) el.textContent = T('ai.elapsed', { n: Math.round((Date.now() - s.started) / 1000) }); }, 1000);
+    job.promise.then(items => {
+      if (state.sheet !== s) return;
+      items.forEach(x => {
+        const p = picked[x.i];
+        if (!p) return;
+        if (httpsUrl(x.url)) p.url = x.url;
+        if (x.addr) p.addr = String(x.addr).slice(0, 160);
+        if (x.info) p.info = String(x.info).slice(0, 160);
+        p.res = !!x.res;
+        p.resUrl = x.res ? httpsUrl(x.res_url) : '';
+        p.resNote = x.res ? String(x.res_note || '').slice(0, 200) : '';
+        p.verified = true;
+      });
+      s.verifying = false;
+      writePlaces(picked);
+    }, e => {
+      if (state.sheet !== s) return;
+      s.verifying = false;
+      if (e.code === 'aborted') s.phase = 'result'; else { s.phase = 'error'; s.err = e.code || 'unknown'; s.errDetail = e.detail || ''; s.afterVerify = true; }
+      renderSheet(false);
+    }).then(() => { if (aiJob === job) aiJob = null; clearInterval(aiClock); });
+  }
+
+  // Elle eklenen mekan: kayıt hemen yazılır, AI arka planda site / adres / rezervasyon / bilgi satırını bulup ekler
+  function enrichCustom(key, name, area) {
+    const trip = state.key;
+    AI.enrich(aiContext(), [{ name, area }]).promise.then(items => {
+      const x = items[0];
+      if (!x || state.key !== trip || !tripRef) return;
+      const p = { name, res: !!x.res, resUrl: x.res ? httpsUrl(x.res_url) : '', resNote: x.res ? String(x.res_note || '').slice(0, 200) : '', url: httpsUrl(x.url) };
+      const base = `custom_activities/${key}/`;
+      const upd = Object.assign({
+        [base + 'url']: p.url || null, [base + 'addr']: String(x.addr || '').slice(0, 160) || null, [base + 'info']: String(x.info || '').slice(0, 160) || null,
+        [base + 'res']: p.res || null, [base + 'resUrl']: p.resUrl || null, [base + 'resNote']: p.resNote || null, [base + 'ai']: true
+      }, reservationTasks([p]));
+      return tripRef.update(upd).then(() => toast(T(p.res ? 'custom.aiDoneRes' : 'custom.aiDone', { name })));
+    }).catch(e => { if (e && e.code !== 'aborted') toast(T('custom.aiFail', { e: T('ai.err.' + (e.code || 'unknown')) })); });
+  }
+
+  function writePlaces(picked) {
     const es = bilingual();
-    const done = n => { toast(T('ai.added', { n })); closeSheet(); state.poolCat = 'all'; renderPool(); };
-    const fail = err => toast(T('toast.saveFail', { e: err.code || err.message }));
+    const tasks = reservationTasks(picked);
+    const nRes = Object.keys(tasks).length;
+    const done = n => { toast(nRes ? T('ai.addedRes', { n, r: nRes }) : T('ai.added', { n })); closeSheet(); state.poolCat = 'all'; renderPool(); };
+    const fail = err => { toast(T('toast.saveFail', { e: err.code || err.message })); if (state.sheet) { state.sheet.phase = 'result'; renderSheet(false); } };
+    const extra = p => ({ addr: p.addr || null, info: p.info || null, url: httpsUrl(p.url) || null, res: p.res || null, resUrl: p.res ? httpsUrl(p.resUrl) || null : null, resNote: p.res ? p.resNote || null : null });
+    const upd = Object.assign({}, tasks);
     if (isOwner()) {
-      const items = picked.map(p => App.clean({
+      const items = picked.map(p => App.clean(Object.assign({
         id: 'ai' + App.randomId(10), name: p.name, area: p.area, cat: p.cat, icon: p.icon,
         desc: es && p.desc_es ? { tr: p.desc_tr, es: p.desc_es } : p.desc_tr,
-        best: p.best.length ? p.best : null, res: p.res || null, kid: p.kid || null, url: p.url || null, ai: true
-      }));
-      tripRef.child('def/pool').set(arr((D().def || {}).pool).concat(items)).then(() => done(items.length), fail);
+        best: p.best.length ? p.best : null, kid: p.kid || null, ai: true
+      }, extra(p))));
+      upd['def/pool'] = arr((D().def || {}).pool).concat(items);
     } else {
-      const upd = {};
       picked.forEach(p => {
-        upd['custom_activities/' + tripRef.child('custom_activities').push().key] = {
-          name: p.name, area: p.area, cat: p.cat, desc: p.desc_tr, addedBy: state.me, addedAt: TS()
-        };
+        upd['custom_activities/' + tripRef.child('custom_activities').push().key] = App.clean(Object.assign({
+          name: p.name, area: p.area, cat: p.cat, desc: p.desc_tr, addedBy: state.me, addedAt: TS(), ai: true
+        }, extra(p)));
       });
-      tripRef.update(upd).then(() => done(picked.length), fail);
     }
+    tripRef.update(upd).then(() => done(picked.length), fail);
   }
 
   function aiSavePractical() {
@@ -1242,9 +1331,16 @@
 
   // YouTube önizlemesi: kapak resmi + başlık (oEmbed); pencereyi yeniden çizmeden
   function renderYtPreview() {
-    const s = state.sheet, box = $('#aiYtPreview');
+    const s = state.sheet, box = $('#aiYtPreview'), hint = $('#aiSourceHint');
     if (!box || !s) return;
     const id = AI.ytId(s.source || '');
+    const ig = AI.urlsIn(s.source || '').some(u => AI.igId(u));
+    // Kaynağa göre ipucu: YouTube yorumları okunabiliyor mu, Instagram için ekran görüntüsü önerisi
+    if (hint) {
+      const note = (icon, color, text) => `<p class="text-[11px] rounded-lg surface2 px-2.5 py-2 flex gap-2 items-start"><i class="${icon} mt-0.5" style="color:${color}" aria-hidden="true"></i><span>${esc(text)}</span></p>`;
+      hint.innerHTML = (id ? note('fa-solid fa-comments', '#ff0033', T(AI.ytKey() ? 'ai.ytComments' : 'ai.ytNoComments')) : '') +
+        (ig ? note('fa-brands fa-instagram', '#d62976', T('ai.igHint')) : '');
+    }
     if (!id) { box.innerHTML = ''; return; }
     const card = info => `<div class="flex gap-3 items-center rounded-xl surface2 p-2">
         <img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" alt="" class="w-28 h-16 rounded-lg object-cover shrink-0" referrerpolicy="no-referrer" onerror="this.remove()">
@@ -1283,13 +1379,14 @@
       `<button data-action="ai-tab" data-tab="${k}" class="h-10 px-1 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap ${s.tab === k ? 'btn-accent' : 'btn-ghost'}" ${s.phase === 'loading' ? 'disabled' : ''}><i class="fa-solid ${ic}" aria-hidden="true"></i> ${esc(l)}</button>`).join('')}</div>`;
 
     if (s.phase === 'loading') {
-      const txt = s.tab === 'practical' ? 'ai.loadingPractical' : s.tab === 'extract' ? (s.loadPhase === 2 ? 'ai.loadingShape' : 'ai.loadingRead') : 'ai.loadingPlaces';
+      const txt = s.verifying ? 'ai.loadingVerify' : s.tab === 'practical' ? 'ai.loadingPractical' : s.tab === 'extract' ? (s.loadPhase === 2 ? 'ai.loadingShape' : 'ai.loadingRead') : 'ai.loadingPlaces';
       c.innerHTML = head + `<div class="${bodyCls}">${tabs}
           <div class="py-10 text-center space-y-3">
-            <i class="fa-solid fa-wand-magic-sparkles fa-beat-fade text-3xl accent" aria-hidden="true"></i>
+            <i class="fa-solid ${s.verifying ? 'fa-magnifying-glass-location' : 'fa-wand-magic-sparkles'} fa-beat-fade text-3xl accent" aria-hidden="true"></i>
             <p id="aiLoadText" class="font-extrabold">${esc(T(txt))}</p>
+            <p id="aiLoadSub" class="text-xs muted">${esc(s.verifying ? s.progress || '' : '')}</p>
             <p id="aiElapsed" class="text-xs muted" aria-live="polite">${esc(T('ai.elapsed', { n: 0 }))}</p>
-            <p class="text-[11px] muted">${esc(T(s.tab === 'extract' ? 'ai.slowExtract' : 'ai.slow'))}</p>
+            <p class="text-[11px] muted">${esc(T(s.verifying || s.tab === 'extract' ? 'ai.slowExtract' : 'ai.slow'))}</p>
           </div>
         </div>` + foot(btn('ai-cancel', T('ai.cancel'), 'fa-xmark', 'btn-ghost w-full'));
       return;
@@ -1305,7 +1402,10 @@
             ${s.errDetail ? `<p class="text-xs muted">${esc(T('ai.claudeSaid'))} ${esc(s.errDetail)}</p>` : ''}
           </div>
           ${code === 'limit' ? AI.limitHtml(true) : ''}
-        </div>` + foot((keyProblem ? btn('ai-key-change', T('key.change'), 'fa-key', 'btn-ghost flex-1') : btn('ai-back', T('ai.back'), 'fa-arrow-left', 'btn-ghost flex-1')) + btn('ai-run', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1'));
+        </div>` + foot(s.afterVerify && !keyProblem
+          // doğrulama başarısız: seçilenler kaybolmasın
+          ? btn('ai-add-plain', T('ai.addPlain'), 'fa-plus', 'btn-ghost flex-1') + btn('ai-add', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1')
+          : (keyProblem ? btn('ai-key-change', T('key.change'), 'fa-key', 'btn-ghost flex-1') : btn('ai-back', T('ai.back'), 'fa-arrow-left', 'btn-ghost flex-1')) + btn('ai-run', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1'));
       return;
     }
 
@@ -1343,12 +1443,18 @@
                   ${p.kid ? '<span class="tag surface2 muted"><i class="fa-solid fa-child" aria-hidden="true"></i></span>' : ''}
                   ${p.area ? `<span class="text-[11px] muted">${esc(p.area)}</span>` : ''}
                 </span>
+                ${p.info ? `<span class="block text-xs font-semibold mt-1 leading-snug">${esc(p.info)}</span>` : ''}
                 <span class="block text-xs muted mt-1 leading-snug">${esc(App.lang() === 'es' && p.desc_es ? p.desc_es : p.desc_tr)}</span>
+                ${p.addr ? `<span class="block text-[11px] muted mt-1"><i class="fa-solid fa-location-dot terra" aria-hidden="true"></i> ${esc(p.addr)}</span>` : ''}
                 ${p.best.length ? `<span class="block text-[11px] mt-1 accent font-bold">${esc(p.best.map(slotName).join(' · '))}</span>` : ''}
               </span>
             </button>`;
           }).join('')}</div>
-        </div>` + foot(btn('ai-run', T('ai.again'), 'fa-rotate-right', 'btn-ghost px-4') + `<button data-action="ai-add" class="h-12 flex-1 rounded-xl btn-accent text-sm font-bold" ${n ? '' : 'disabled'}><i class="fa-solid fa-plus" aria-hidden="true"></i> ${esc(T('ai.add', { n }))}</button>`);
+        </div>
+        <div class="px-5 pt-3 border-t line">
+          <label class="flex items-start gap-2 text-xs"><input type="checkbox" data-action="ai-verify" ${s.verify ? 'checked' : ''} class="mt-0.5">
+            <span><strong>${esc(T('ai.verify'))}</strong><span class="block muted">${esc(T('ai.verifyHelp', { c: AI.fmtUsd(Math.max(1, n) * 0.05) }))}</span></span></label>
+        </div>` + foot(btn('ai-run', T('ai.again'), 'fa-rotate-right', 'btn-ghost px-4') + `<button data-action="ai-add" class="h-12 flex-1 rounded-xl btn-accent text-sm font-bold" ${n ? '' : 'disabled'}><i class="fa-solid ${s.verify ? 'fa-magnifying-glass-location' : 'fa-plus'}" aria-hidden="true"></i> ${esc(T(s.verify ? 'ai.addVerify' : 'ai.add', { n }))}</button>`).replace('border-t line pb-safe', 'pb-safe');
       if (keep) $('#aiList').scrollTop = keep;
       return;
     }
@@ -1359,9 +1465,24 @@
       body = `<p class="text-sm">${esc(T('ai.practicalIntro'))}</p>
         ${PRACTICAL.length ? `<p class="text-xs terra font-bold">${esc(T('ai.replaceWarn', { n: PRACTICAL.length }))}</p>` : ''}`;
     } else if (s.tab === 'extract') {
+      const imgs = s.images || [];
       body = `<label class="block"><span class="text-xs font-bold muted">${esc(T('ai.source'))}</span>
           <textarea id="aiSource" data-autofocus maxlength="8000" rows="5" class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm" placeholder="${esc(T('ai.sourcePh'))}">${esc(s.source || '')}</textarea></label>
         <div id="aiYtPreview"></div>
+        <div id="aiSourceHint"></div>
+        <div class="space-y-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <label class="h-10 px-3 rounded-xl btn-ghost text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer ${imgs.length >= 8 ? 'opacity-50 pointer-events-none' : ''}">
+              <i class="fa-solid fa-image" aria-hidden="true"></i> ${esc(T('ai.addShots'))}
+              <input id="aiImages" type="file" accept="image/*" multiple class="sr-only">
+            </label>
+            <span class="text-[11px] muted">${esc(T('ai.shotsHelp'))}</span>
+          </div>
+          ${imgs.length ? `<div class="flex gap-2 flex-wrap">${imgs.map((im, i) => `<div class="relative">
+              <img src="${im.thumb}" alt="" class="w-16 h-16 rounded-lg object-cover border line">
+              <button data-action="ai-img-del" data-i="${i}" class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full btn-accent text-[10px]" aria-label="${esc(T('ai.shotDel'))}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>`).join('')}</div>` : ''}
+        </div>
         <p class="text-[11px] muted">${esc(T('ai.extractHelp'))}</p>
         <p class="text-[11px] muted">${esc(T(owner ? 'ai.whereOwner' : 'ai.whereMember'))}</p>`;
     } else {
@@ -1383,8 +1504,46 @@
 
   function openAi(tab) {
     tab = tab === 'practical' && isOwner() ? 'practical' : tab === 'extract' ? 'extract' : 'places';
-    openSheet({ type: 'ai', tab, phase: 'form', wish: '', source: '', count: 15, result: [], sel: {} });
+    openSheet({ type: 'ai', tab, phase: 'form', wish: '', source: '', images: [], count: 15, result: [], sel: {}, verify: true });
   }
+
+  // Ekran görüntüsü: Claude için en uzun kenar 1568 px, JPEG; küçük önizleme ayrıca
+  function shrinkImage(file) {
+    return new Promise((res, rej) => {
+      if (!/^image\//.test(file.type || '')) { rej(new Error('type')); return; }
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const draw = max => {
+          const k = Math.min(1, max / Math.max(img.width, img.height));
+          const cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
+          const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+          return cv;
+        };
+        const data = draw(1568).toDataURL('image/jpeg', 0.85);
+        const thumb = draw(160).toDataURL('image/jpeg', 0.7);
+        URL.revokeObjectURL(url);
+        res({ media_type: 'image/jpeg', data: data.split(',')[1], thumb });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('img')); };
+      img.src = url;
+    });
+  }
+  document.addEventListener('change', e => {
+    if (e.target.id !== 'aiImages') return;
+    const s = state.sheet;
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!s || s.type !== 'ai' || !files.length) return;
+    const room = 8 - (s.images || []).length;
+    if (files.length > room) toast(T('ai.shotsMax'));
+    Promise.all(files.slice(0, Math.max(0, room)).map(f => shrinkImage(f).catch(() => null))).then(list => {
+      if (state.sheet !== s) return;
+      s.images = (s.images || []).concat(list.filter(Boolean)).slice(0, 8);
+      renderSheet(false);
+    });
+  });
 
   const aiActions = {
     'ai-open': el => openAi(el.dataset.tab),
@@ -1399,10 +1558,18 @@
     'ai-run': () => aiRun(),
     'ai-cancel': () => { if (aiJob) aiJob.abort(); },
     'ai-back': () => { state.sheet.phase = 'form'; renderSheet(false); },
+    'ai-verify': () => { const s = state.sheet; s.verify = !s.verify; renderSheet(true); },
+    'ai-add-plain': () => { const s = state.sheet; s.afterVerify = false; writePlaces((s.result || []).filter((p, i) => s.sel[i])); },
+    'ai-img-del': el => { const s = state.sheet; s.images.splice(Number(el.dataset.i), 1); renderSheet(false); },
+    'task-del': el => {
+      const k = el.dataset.key;
+      if (!safeId(k) || !confirm(T('check.delAsk'))) return;
+      tripRef.update({ ['tasks/' + k]: null, ['checklist/task_' + k]: null }).catch(err => toast(T('toast.delFail', { e: err.code })));
+    },
     'ai-key-change': () => { if (state.sheet) Object.assign(state.sheet, { phase: 'form', err: '' }); AI.startEdit(); },
     'ai-sel': el => { const s = state.sheet; const i = Number(el.dataset.i); s.sel[i] = !s.sel[i]; renderSheet(true); },
     'ai-sel-all': () => { const s = state.sheet; const all = s.result.every((p, i) => s.sel[i]); s.sel = {}; if (!all) s.result.forEach((p, i) => { s.sel[i] = true; }); renderSheet(true); },
-    'ai-add': () => aiAddPlaces(),
+    'ai-add': () => { if (state.sheet) state.sheet.afterVerify = false; aiAddPlaces(); },
     'ai-save-practical': () => aiSavePractical()
   };
 
@@ -1635,9 +1802,11 @@
       if (!name) return;
       const ref = tripRef.child('custom_activities').push();
       const s = state.sheet;
+      const area = String(f.get('area') || '').trim().slice(0, 60);
+      const aiFill = !!f.get('aiFill') && AI.hasKey();
       ref.set({
         name: name.slice(0, 80),
-        area: String(f.get('area') || '').trim().slice(0, 60),
+        area,
         cat: String(f.get('cat') || 'food'),
         desc: String(f.get('desc') || '').trim().slice(0, 300),
         addedBy: state.me,
@@ -1645,7 +1814,8 @@
       }).then(() => {
         if (s && s.review) reviewWrite('custom:' + ref.key, { went: true }, true).then(ok => ok && toast(T('rv.added')));
         else if (s && s.slot) setTimeout(() => addToSlot('custom:' + ref.key, s.day, s.slot), 300);
-        else toast(T('toast.poolAdded'));
+        else toast(T(aiFill ? 'custom.aiWorking' : 'toast.poolAdded'));
+        if (aiFill) enrichCustom(ref.key, name.slice(0, 80), area);
       }).catch(err => toast(T('toast.saveFail', { e: err.code })));
       closeSheet();
     }
