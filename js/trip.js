@@ -557,7 +557,10 @@
     return `<div class="dashed rounded-2xl p-4 text-center space-y-2.5">
       <i class="fa-solid fa-wand-magic-sparkles text-xl accent" aria-hidden="true"></i>
       <p class="text-sm">${esc(T(textKey))}</p>
-      <button data-action="ai-open" data-tab="${tab}" class="h-10 px-4 rounded-xl btn-accent text-sm font-bold"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(T(tab === 'practical' ? 'ai.goPractical' : 'ai.goPlaces'))}</button>
+      <div class="flex gap-2 justify-center flex-wrap">
+        <button data-action="ai-open" data-tab="${tab}" class="h-10 px-4 rounded-xl btn-accent text-sm font-bold"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(T(tab === 'practical' ? 'ai.goPractical' : 'ai.goPlaces'))}</button>
+        ${tab === 'places' ? `<button data-action="ai-open" data-tab="extract" class="h-10 px-4 rounded-xl btn-ghost text-sm font-bold"><i class="fa-brands fa-youtube" style="color:#ff0033" aria-hidden="true"></i> ${esc(T('ai.fromLink'))}</button>` : ''}
+      </div>
     </div>`;
   }
 
@@ -1161,10 +1164,17 @@
     const s = state.sheet;
     if (!s || s.type !== 'ai' || aiJob) return;
     const ctx = aiContext();
-    const req = s.tab === 'practical' ? AI.practicalRequest(ctx) : AI.placesRequest(ctx, (s.wish || '').trim().slice(0, 300), s.count || 15);
-    const job = AI.ask(req);
+    let job;
+    if (s.tab === 'extract') {
+      const src = (s.source || '').trim();
+      if (!src) { const t = $('#aiSource'); if (t) t.focus(); return; }
+      job = AI.extract(ctx, src.slice(0, 8000));
+      job.ctl.onPhase = p => { s.loadPhase = p; const el = $('#aiLoadText'); if (el && state.sheet === s) el.textContent = T('ai.loadingShape'); };
+    } else {
+      job = AI.ask(s.tab === 'practical' ? AI.practicalRequest(ctx) : AI.placesRequest(ctx, (s.wish || '').trim().slice(0, 300), s.count || 15));
+    }
     aiJob = job;
-    Object.assign(s, { phase: 'loading', started: Date.now(), err: '' });
+    Object.assign(s, { phase: 'loading', started: Date.now(), err: '', errDetail: '', loadPhase: 1 });
     renderSheet(false);
     clearInterval(aiClock);
     aiClock = setInterval(() => { const el = $('#aiElapsed'); if (el && state.sheet === s) el.textContent = T('ai.elapsed', { n: Math.round((Date.now() - s.started) / 1000) }); }, 1000);
@@ -1181,7 +1191,7 @@
       if (!s.result.length) s.err = 'empty';
     }, e => {
       if (state.sheet !== s) return;
-      if (e.code === 'aborted') { s.phase = 'form'; } else { s.phase = 'error'; s.err = e.code || 'unknown'; }
+      if (e.code === 'aborted') { s.phase = 'form'; } else { s.phase = 'error'; s.err = e.code || 'unknown'; s.errDetail = e.detail || ''; }
     }).then(() => {
       if (aiJob === job) aiJob = null;
       clearInterval(aiClock);
@@ -1230,38 +1240,56 @@
 
   const slotName = k => { const sl = slotOf(k); return sl ? sl.label : k; };
 
+  // YouTube önizlemesi: kapak resmi + başlık (oEmbed); pencereyi yeniden çizmeden
+  function renderYtPreview() {
+    const s = state.sheet, box = $('#aiYtPreview');
+    if (!box || !s) return;
+    const id = AI.ytId(s.source || '');
+    if (!id) { box.innerHTML = ''; return; }
+    const card = info => `<div class="flex gap-3 items-center rounded-xl surface2 p-2">
+        <img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" alt="" class="w-28 h-16 rounded-lg object-cover shrink-0" referrerpolicy="no-referrer" onerror="this.remove()">
+        <div class="min-w-0"><p class="text-xs font-bold leading-snug">${esc(info ? info.title : 'YouTube')}</p>${info && info.author ? `<p class="text-[11px] muted truncate">${esc(info.author)}</p>` : ''}</div>
+        <i class="fa-brands fa-youtube text-xl ml-auto shrink-0" style="color:#ff0033" aria-hidden="true"></i>
+      </div>`;
+    box.innerHTML = card(null);
+    AI.ytInfo(id).then(info => { const b = $('#aiYtPreview'); if (state.sheet === s && AI.ytId(s.source || '') === id && b) b.innerHTML = card(info); });
+  }
+
   function renderAiSheet(c, isUpdate) {
     const s = state.sheet;
-    // Canlı veri değişince yazılan isteği / beklemeyi bozma; sadece sonuç listesi tazelenir
-    if (isUpdate && s.phase !== 'result') return;
     const owner = isOwner();
     const bodyCls = 'px-5 py-4 space-y-4 overflow-y-auto flex-1';
-    const foot = inner => `<div class="px-5 py-3 border-t line pb-safe flex gap-2">${inner}</div>`;
-    const btn = (action, label, icon, cls) => `<button data-action="${action}" class="h-12 rounded-xl text-sm font-bold ${cls}">${icon ? `<i class="fa-solid ${icon}" aria-hidden="true"></i> ` : ''}${esc(label)}</button>`;
     const head = sheetHeader(`<i class="fa-solid fa-wand-magic-sparkles accent" aria-hidden="true"></i> ${esc(T('ai.title'))}`, esc(T('ai.sub', { city: CITY })));
 
-    if (!AI.hasKey()) {
-      c.innerHTML = head + `<form id="aiKeyFormTrip" class="${bodyCls}">
-          <p class="text-sm">${esc(T('ai.needKey'))}</p>
-          <input name="key" type="password" data-autofocus autocomplete="off" spellcheck="false" placeholder="sk-ant-…" class="w-full rounded-xl px-3 py-2.5 text-sm font-mono" aria-label="${esc(T('key.label'))}">
-          ${s.err ? `<p class="text-xs font-bold bad">${esc(T(s.err === 'format' ? 'key.format' : 'ai.err.' + s.err))}</p>` : ''}
-          <button type="submit" class="w-full h-12 rounded-xl btn-accent text-sm font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.save'))}</button>
-          <div class="border-t line pt-4">${AI.guideHtml()}</div>
+    // Anahtar yok / kilitli / değiştiriliyor: ortak anahtar paneli (yazılmakta olan alanlar korunur)
+    if (!AI.hasKey() || AI.isEditing()) {
+      const keep = {};
+      c.querySelectorAll('form[data-ai-form] input[name]').forEach(i => { if (i.type !== 'checkbox' && i.type !== 'hidden') keep[i.name] = i.value; });
+      c.innerHTML = head + `<div class="${bodyCls}">
+          ${AI.status() === 'none' ? `<p class="text-sm">${esc(T('ai.needKey'))}</p>` : ''}
+          ${AI.keyPanelHtml()}
           <p class="text-[11px] muted">${esc(T('key.privacy'))}</p>
-        </form>`;
+        </div>`;
+      c.querySelectorAll('form[data-ai-form] input[name]').forEach(i => { if (keep[i.name]) i.value = keep[i.name]; });
       return;
     }
+    // Canlı veri değişince yazılan isteği / beklemeyi bozma; sadece sonuç listesi tazelenir
+    if (isUpdate && s.phase !== 'result') return;
 
-    const tabs = owner ? `<div class="grid grid-cols-2 gap-2">${[['places', T('ai.tabPlaces'), 'fa-location-dot'], ['practical', T('ai.tabPractical'), 'fa-circle-info']].map(([k, l, ic]) =>
-      `<button data-action="ai-tab" data-tab="${k}" class="h-10 rounded-xl text-sm font-bold ${s.tab === k ? 'btn-accent' : 'btn-ghost'}" ${s.phase === 'loading' ? 'disabled' : ''}><i class="fa-solid ${ic}" aria-hidden="true"></i> ${esc(l)}</button>`).join('')}</div>` : '';
+    const foot = inner => `<div class="px-5 py-3 border-t line pb-safe flex gap-2">${inner}</div>`;
+    const btn = (action, label, icon, cls) => `<button data-action="${action}" class="h-12 rounded-xl text-sm font-bold ${cls}">${icon ? `<i class="fa-solid ${icon}" aria-hidden="true"></i> ` : ''}${esc(label)}</button>`;
+    const tabList = [['places', T('ai.tabPlaces'), 'fa-location-dot'], ['extract', T('ai.tabExtract'), 'fa-link']].concat(owner ? [['practical', T('ai.tabPractical'), 'fa-circle-info']] : []);
+    const tabs = `<div class="grid ${tabList.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-2">${tabList.map(([k, l, ic]) =>
+      `<button data-action="ai-tab" data-tab="${k}" class="h-10 px-1 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap ${s.tab === k ? 'btn-accent' : 'btn-ghost'}" ${s.phase === 'loading' ? 'disabled' : ''}><i class="fa-solid ${ic}" aria-hidden="true"></i> ${esc(l)}</button>`).join('')}</div>`;
 
     if (s.phase === 'loading') {
+      const txt = s.tab === 'practical' ? 'ai.loadingPractical' : s.tab === 'extract' ? (s.loadPhase === 2 ? 'ai.loadingShape' : 'ai.loadingRead') : 'ai.loadingPlaces';
       c.innerHTML = head + `<div class="${bodyCls}">${tabs}
           <div class="py-10 text-center space-y-3">
             <i class="fa-solid fa-wand-magic-sparkles fa-beat-fade text-3xl accent" aria-hidden="true"></i>
-            <p class="font-extrabold">${esc(T(s.tab === 'practical' ? 'ai.loadingPractical' : 'ai.loadingPlaces'))}</p>
+            <p id="aiLoadText" class="font-extrabold">${esc(T(txt))}</p>
             <p id="aiElapsed" class="text-xs muted" aria-live="polite">${esc(T('ai.elapsed', { n: 0 }))}</p>
-            <p class="text-[11px] muted">${esc(T('ai.slow'))}</p>
+            <p class="text-[11px] muted">${esc(T(s.tab === 'extract' ? 'ai.slowExtract' : 'ai.slow'))}</p>
           </div>
         </div>` + foot(btn('ai-cancel', T('ai.cancel'), 'fa-xmark', 'btn-ghost w-full'));
       return;
@@ -1269,13 +1297,15 @@
 
     if (s.phase === 'error') {
       const code = s.err || 'unknown';
+      const keyProblem = ['auth', 'permission', 'credit', 'nokey'].includes(code);
       c.innerHTML = head + `<div class="${bodyCls}">${tabs}
           <div class="rounded-2xl surface2 p-4 space-y-2">
             <p class="text-sm font-extrabold bad"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${esc(T('ai.failed'))}</p>
             <p class="text-sm">${esc(T('ai.err.' + code))}</p>
+            ${s.errDetail ? `<p class="text-xs muted">${esc(T('ai.claudeSaid'))} ${esc(s.errDetail)}</p>` : ''}
           </div>
           ${code === 'limit' ? AI.limitHtml(true) : ''}
-        </div>` + foot((code === 'auth' || code === 'permission' || code === 'credit' ? btn('ai-key-reset', T('key.change'), 'fa-key', 'btn-ghost flex-1') : btn('ai-back', T('ai.back'), 'fa-arrow-left', 'btn-ghost flex-1')) + btn('ai-run', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1'));
+        </div>` + foot((keyProblem ? btn('ai-key-change', T('key.change'), 'fa-key', 'btn-ghost flex-1') : btn('ai-back', T('ai.back'), 'fa-arrow-left', 'btn-ghost flex-1')) + btn('ai-run', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1'));
       return;
     }
 
@@ -1324,55 +1354,68 @@
     }
 
     // form
-    const isPr = s.tab === 'practical';
+    let body = '';
+    if (s.tab === 'practical') {
+      body = `<p class="text-sm">${esc(T('ai.practicalIntro'))}</p>
+        ${PRACTICAL.length ? `<p class="text-xs terra font-bold">${esc(T('ai.replaceWarn', { n: PRACTICAL.length }))}</p>` : ''}`;
+    } else if (s.tab === 'extract') {
+      body = `<label class="block"><span class="text-xs font-bold muted">${esc(T('ai.source'))}</span>
+          <textarea id="aiSource" data-autofocus maxlength="8000" rows="5" class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm" placeholder="${esc(T('ai.sourcePh'))}">${esc(s.source || '')}</textarea></label>
+        <div id="aiYtPreview"></div>
+        <p class="text-[11px] muted">${esc(T('ai.extractHelp'))}</p>
+        <p class="text-[11px] muted">${esc(T(owner ? 'ai.whereOwner' : 'ai.whereMember'))}</p>`;
+    } else {
+      body = `<label class="block"><span class="text-xs font-bold muted">${esc(T('ai.wish'))}</span>
+          <textarea id="aiWish" data-autofocus maxlength="300" rows="3" class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm" placeholder="${esc(T('ai.wishPh'))}">${esc(s.wish || '')}</textarea></label>
+        <div><span class="text-xs font-bold muted">${esc(T('ai.count'))}</span>
+          <div class="grid grid-cols-3 gap-2 mt-1">${[10, 15, 25].map(n => `<button data-action="ai-count" data-n="${n}" class="h-10 rounded-xl text-sm font-bold ${s.count === n ? 'btn-soft ring-accent' : 'btn-ghost'}">${n}</button>`).join('')}</div>
+        </div>
+        <p class="text-[11px] muted">${esc(T(owner ? 'ai.whereOwner' : 'ai.whereMember'))}</p>`;
+    }
+    const go = s.tab === 'practical' ? 'ai.goPractical' : s.tab === 'extract' ? 'ai.goExtract' : 'ai.goPlaces';
     c.innerHTML = head + `<div class="${bodyCls}">${tabs}
-        ${isPr ? `<p class="text-sm">${esc(T('ai.practicalIntro'))}</p>
-            ${PRACTICAL.length ? `<p class="text-xs terra font-bold">${esc(T('ai.replaceWarn', { n: PRACTICAL.length }))}</p>` : ''}`
-          : `<label class="block"><span class="text-xs font-bold muted">${esc(T('ai.wish'))}</span>
-              <textarea id="aiWish" data-autofocus maxlength="300" rows="3" class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm" placeholder="${esc(T('ai.wishPh'))}">${esc(s.wish || '')}</textarea></label>
-            <div><span class="text-xs font-bold muted">${esc(T('ai.count'))}</span>
-              <div class="grid grid-cols-3 gap-2 mt-1">${[10, 15, 25].map(n => `<button data-action="ai-count" data-n="${n}" class="h-10 rounded-xl text-sm font-bold ${s.count === n ? 'btn-soft ring-accent' : 'btn-ghost'}">${n}</button>`).join('')}</div>
-            </div>
-            <p class="text-[11px] muted">${esc(T(owner ? 'ai.whereOwner' : 'ai.whereMember'))}</p>`}
+        ${body}
         <div class="border-t line pt-3">${AI.limitHtml(true)}</div>
-        <p class="text-[11px] muted"><i class="fa-solid fa-key" aria-hidden="true"></i> ${esc(T('ai.using', { key: AI.maskKey(AI.getKey()) }))} · <button data-action="ai-key-reset" class="underline">${esc(T('key.change'))}</button></p>
-      </div>` + foot(btn('ai-run', T(isPr ? 'ai.goPractical' : 'ai.goPlaces'), 'fa-wand-magic-sparkles', 'btn-accent w-full'));
+        <p class="text-[11px] muted"><i class="fa-solid fa-lock" aria-hidden="true"></i> ${esc(T('ai.using', { key: AI.hint() }))} · <button data-action="ai-key-change" class="underline">${esc(T('key.change'))}</button></p>
+      </div>` + foot(btn('ai-run', T(go), 'fa-wand-magic-sparkles', 'btn-accent w-full'));
+    if (s.tab === 'extract') renderYtPreview();
+  }
+
+  function openAi(tab) {
+    tab = tab === 'practical' && isOwner() ? 'practical' : tab === 'extract' ? 'extract' : 'places';
+    openSheet({ type: 'ai', tab, phase: 'form', wish: '', source: '', count: 15, result: [], sel: {} });
   }
 
   const aiActions = {
-    'ai-open': el => {
-      const tab = el.dataset.tab === 'practical' && isOwner() ? 'practical' : 'places';
-      openSheet({ type: 'ai', tab, phase: 'form', wish: '', count: 15, result: [], sel: {} });
+    'ai-open': el => openAi(el.dataset.tab),
+    'ai-tab': el => {
+      const s = state.sheet;
+      if (!s || aiJob) return;
+      const t = el.dataset.tab;
+      Object.assign(s, { tab: t === 'practical' && isOwner() ? 'practical' : t === 'extract' ? 'extract' : 'places', phase: 'form', result: [], sel: {} });
+      renderSheet(false);
     },
-    'ai-tab': el => { const s = state.sheet; if (!s || aiJob) return; Object.assign(s, { tab: el.dataset.tab === 'practical' ? 'practical' : 'places', phase: 'form', result: [], sel: {} }); renderSheet(false); },
     'ai-count': el => { state.sheet.count = Number(el.dataset.n) || 15; renderSheet(false); },
     'ai-run': () => aiRun(),
     'ai-cancel': () => { if (aiJob) aiJob.abort(); },
     'ai-back': () => { state.sheet.phase = 'form'; renderSheet(false); },
-    'ai-key-reset': () => { if (!confirm(T('key.delAsk'))) return; AI.setKey(''); Object.assign(state.sheet, { phase: 'form', err: '' }); renderSheet(false); },
+    'ai-key-change': () => { if (state.sheet) Object.assign(state.sheet, { phase: 'form', err: '' }); AI.startEdit(); },
     'ai-sel': el => { const s = state.sheet; const i = Number(el.dataset.i); s.sel[i] = !s.sel[i]; renderSheet(true); },
     'ai-sel-all': () => { const s = state.sheet; const all = s.result.every((p, i) => s.sel[i]); s.sel = {}; if (!all) s.result.forEach((p, i) => { s.sel[i] = true; }); renderSheet(true); },
     'ai-add': () => aiAddPlaces(),
     'ai-save-practical': () => aiSavePractical()
   };
 
-  document.addEventListener('input', e => { if (e.target.id === 'aiWish' && state.sheet && state.sheet.type === 'ai') state.sheet.wish = e.target.value; });
-  document.addEventListener('submit', e => {
-    if (e.target.id !== 'aiKeyFormTrip') return;
-    e.preventDefault();
-    const s = state.sheet;
-    const k = String(e.target.elements.key.value || '').trim();
-    if (!s || !k || s.busy) return;
-    s.busy = true; s.err = ''; renderSheet(false);
-    AI.saveKey(k).then(r => {
-      s.busy = false;
-      s.phase = 'form';
-      s.err = r.saved ? '' : r.code; // kaydedildiyse form açılır; ağ hatası varsa denemede tekrar görünür
-      if (state.sheet === s) renderSheet(false);
-    });
+  let ytTimer = null;
+  document.addEventListener('input', e => {
+    if (!state.sheet || state.sheet.type !== 'ai') return;
+    if (e.target.id === 'aiWish') state.sheet.wish = e.target.value;
+    if (e.target.id === 'aiSource') { state.sheet.source = e.target.value; clearTimeout(ytTimer); ytTimer = setTimeout(renderYtPreview, 300); }
   });
   App.on(aiActions);
-  // Rehber açıldı / limit değişti: AI penceresi açıksa yeniden çiz
+  // Başlıktaki AI rozeti plan ekranındayken AI penceresini açar
+  AI.setOpenHandler(() => { if (state.me) openAi('places'); });
+  // Anahtar durumu / limit / kullanım değişti: AI penceresi açıksa yeniden çiz (beklerken dokunma)
   AI.onChange(() => { if (state.sheet && state.sheet.type === 'ai' && state.sheet.phase !== 'loading') renderSheet(false); });
 
   // ---------- olaylar ----------

@@ -32,6 +32,21 @@
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.isNumber() && newData.val() === (data.exists() ? data.val() : 0) + 1 && auth.token.email_verified === true && newData.val() <= root.child('allowlist/' + auth.token.email.toLowerCase().replace('.', ',') + '/limit').val()"
         },
+        "ai": {
+          ".write": "auth != null && auth.uid === $uid",
+          "key": {
+            ".validate": "newData.hasChildren(['v', 'ct', 'iv', 'salt', 'it']) && newData.child('ct').isString() && newData.child('ct').val().length <= 600 && newData.child('iv').isString() && newData.child('iv').val().length <= 40 && newData.child('salt').isString() && newData.child('salt').val().length <= 40 && newData.child('it').isNumber() && newData.child('it').val() >= 100000"
+          },
+          "limit": {
+            ".validate": "newData.isNumber() && (newData.val() === 0 || newData.val() === 50000 || newData.val() === 150000 || newData.val() === 500000)"
+          },
+          "usage": {
+            "$m": {
+              ".validate": "$m.matches(/^2[0-9][0-9][0-9]-[01][0-9]$/) && newData.hasChildren(['tokens', 'cost', 'n']) && newData.child('tokens').isNumber() && newData.child('cost').isNumber() && newData.child('n').isNumber()"
+            }
+          },
+          "$other": { ".validate": false }
+        },
         "trips": {
           "$t": {
             ".write": "auth != null && auth.uid === $uid",

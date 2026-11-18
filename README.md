@@ -30,12 +30,28 @@ Yeni plan formunda önce ülke, sonra şehir seçilir. İki alan da yazarak filt
 - Veriyi yenilemek için GeoNames dosyalarını indir ve `tools/build-cities.ps1 -Raw <klasör> -Out data` komutunu çalıştır.
 
 ## AI önerileri (Claude)
-Plan ekranında **AI** düğmesi Claude ile mekan önerisi ve pratik bilgi hazırlar.
-- Herkes kendi Claude API anahtarını ana sayfadaki **Claude API anahtarı** kutusuna girer. Anahtar ilk AI kullanımında plan ekranından da girilebilir.
-- Anahtarı olmayanlar için **Anahtar sayfasına git** düğmesi ve 4 adımlı **"Anahtarım yok, nasıl alırım?"** rehberi var. Adımlar: Console'a gir, kredi yükle, anahtar oluştur, yapıştır.
-- **Aylık kullanım limiti:** 50k, 150k (varsayılan) ya da 500k token ya da sınırsız seçilebilir. Kullanım her yanıttan sonra token ve yaklaşık $ olarak sayılır. Limit dolunca yeni istek gönderilmez. Sayaç tarayıcı başınadır ve ay başında sıfırlanır. Kesin üst sınır için Console'daki harcama limiti önerilir.
-- Anahtar yalnızca o tarayıcının `localStorage` alanında durur. Veritabanına yazılmaz ve yalnızca Anthropic'e gönderilir. Kullanım ücreti anahtarın sahibinin hesabına yansır.
-- İstek tarayıcıdan doğrudan Anthropic API'sine gider. Model `claude-opus-5-5`'tir. Yanıt JSON şemasıyla alınır ve arayüze girmeden önce süzülür.
+Plan ekranındaki **AI** penceresinin üç sekmesi var:
+- **Öner:** Claude bu gezi için mekan ve aktivite önerir. İsteğe bağlı olarak ne aradığınız yazılabilir.
+- **Video / link:** YouTube videosu, blog linki ya da yapıştırılan bir metinden mekanları çıkarır. Claude videoyu izleyemez. Sayfadaki başlığı, açıklamayı ve bölüm başlıklarını okur (`web_fetch`), gerekirse web'de arar (`web_search`). Sonra bulduklarını havuz biçimine dönüştürür. YouTube linklerinde kapak resmi ve başlık önizlenir.
+- **Pratik:** Ulaşım, para, güvenlik gibi konularda 8–12 madde hazırlar. Yalnızca plan sahibine açıktır.
+
+Gelen önerilerden istenenler işaretlenip havuza eklenir. Plan sahibininkiler havuza, diğer üyelerinkiler "Ekip önerisi" olarak eklenir. AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
+
+**Anahtar (herkes kendi anahtarını kullanır):**
+- Anahtar ana sayfadaki **Claude API anahtarı** kutusuna ya da AI penceresine bir parolayla birlikte girilir.
+- Önce Anthropic'e sorularak denenir. Sonra tarayıcıda parolayla şifrelenir ve `users/<uid>/ai/key` altına yalnızca şifreli hali yazılır. Şifreleme: PBKDF2-SHA256 (600 bin tur) ile AES-GCM 256; hesap kimliği ek veri olarak bağlanır.
+- Parolayı bilmeyen (yöneticiler dahil) anahtarı çözemez.
+- Yeni bir cihazda parola bir kez sorulur. "Bu cihazda hatırla" seçiliyse parolatan türetilen anahtar, dışarı aktarılamaz biçimde IndexedDB'de tutulur. Ortak bilgisayarda **Bu cihazda kilitle** kullanılmalı.
+- Parola unutulursa anahtar silinip yeniden girilir.
+- Anahtarı olmayanlar için **Anahtar sayfasına git** düğmesi ve 4 adımlı **"Anahtarım yok, nasıl alırım?"** rehberi var.
+
+**Kullanım ve limit (hesaba bağlı):**
+- Her yanıttan sonra token ve yaklaşık $ `users/<uid>/ai/usage/<YYYY-MM>` altına yazılır (web araması dahil). Bu, tüm cihazlarda ortak tutulur.
+- Kullanım her sayfanın başlığında görünür (ör. "41k / 150k"). Limite yaklaşınca turuncu, dolunca kırmızı olur.
+- Aylık limit 50k, 150k (varsayılan), 500k ya da sınırsız olabilir. Limit dolunca yeni istek gönderilmez.
+- Sayım tarayıcıda yapılır. Kesin üst sınır için Console'daki harcama limiti önerilir.
+
+İstekler tarayıcıdan doğrudan Anthropic API'sine gider. Model `claude-opus-5-5`'tir. Yanıtlar JSON şemasıyla alınır ve arayüze girmeden önce süzülür.
 - **Plan sahibi:** seçtiği öneriler mekan havuzuna eklenir ve pratik bilgileri plana kaydedebilir.
 - **Diğer üyeler:** seçtikleri öneriler havuza "Ekip önerisi" olarak eklenir.
 - AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
@@ -64,5 +80,5 @@ Eski site ve veritabanı değişmez. İçe aktarılan plan, plan hakkından bir 
   - Bir kişi başka bir hesap tarafından seçilmişse alınamaz.
   - Plan sayısı allowlist'teki limitle sınırlıdır; sayaç yalnızca birer artar.
 - Bilet PDF'leri ve kişisel bilgiler repoya değil, yalnızca veritabanına girer.
-- Claude API anahtarları ne repoya ne veritabanına girer. Her kullanıcının anahtarı kendi tarayıcısında kalır.
+- Claude API anahtarları veritabanında yalnızca kullanıcının parolasıyla şifreli durur; repoya hiç girmez. `users/<uid>/ai` altına yalnızca o hesap yazabilir.
 - `database.rules.json` değiştiğinde Firebase Console → Realtime Database → **Rules** sekmesine yeniden yapıştırıp **Publish** et.

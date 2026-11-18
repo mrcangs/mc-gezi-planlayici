@@ -23,6 +23,7 @@
           <span class="text-[15px] font-extrabold truncate">${esc(T('app.name'))}</span>
         </button>
         <div class="flex items-center gap-2">
+          <span data-ai-badge class="contents">${AI.badgeHtml()}</span>
           ${account.admin ? `<button data-action="go" data-href="#/admin" class="h-9 px-3 rounded-full btn-ghost text-xs font-bold"><i class="fa-solid fa-user-shield" aria-hidden="true"></i><span class="hidden sm:inline ml-1.5">${esc(T('home.admin'))}</span></button>` : ''}
           <button data-action="sign-out" class="h-9 px-3 rounded-full btn-ghost text-xs font-bold" title="${esc(T('auth.signout'))}"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span class="hidden sm:inline ml-1.5">${esc(T('auth.signout'))}</span></button>
           ${App.avatarHtml('w-9 h-9')}
@@ -72,16 +73,8 @@
     screen('vHome');
   }
 
-  // ---------- Claude API anahtarı (yalnızca bu tarayıcıda) ----------
-  const keyState = { editing: false, msg: '', ok: null, busy: false };
+  // ---------- Claude API anahtarı (parolayla şifreli, hesapta) ----------
   function aiKeyHtml() {
-    const key = AI.getKey();
-    const s = keyState;
-    const status = s.msg ? `<p class="text-xs font-bold ${s.ok ? 'ok' : 'bad'}">${esc(s.msg)}</p>` : '';
-    const form = `<form id="aiKeyForm" class="flex gap-2">
-        <input name="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" class="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm font-mono" aria-label="${esc(T('key.label'))}">
-        <button type="submit" class="h-11 px-4 rounded-xl btn-accent text-sm font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.save'))}</button>
-      </form>`;
     return `<div class="surface rounded-2xl p-4 space-y-3">
       <div class="flex items-start gap-3">
         <span class="w-9 h-9 shrink-0 rounded-xl btn-soft flex items-center justify-center"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
@@ -90,52 +83,20 @@
           <p class="text-xs muted">${esc(T('key.sub'))}</p>
         </div>
       </div>
-      ${key && !s.editing ? `<div class="flex items-center gap-2 flex-wrap">
-          <span class="tag surface2 ok font-mono"><i class="fa-solid fa-check" aria-hidden="true"></i> ${esc(AI.maskKey(key))}</span>
-          <button data-action="key-test" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.test'))}</button>
-          <button data-action="key-edit" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold">${esc(T('key.change'))}</button>
-          <button data-action="key-del" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold bad">${esc(T('key.del'))}</button>
-        </div>` : form}
-      ${status}
-      ${key && !s.editing ? '' : AI.guideHtml()}
-      ${key ? `<div class="border-t line pt-3">${AI.limitHtml()}</div>` : ''}
+      ${AI.keyPanelHtml()}
       <p class="text-[11px] muted">${esc(T('key.privacy'))}</p>
     </div>`;
   }
-  function renderKey() { const b = $('#aiKeyBox'); if (b) b.innerHTML = aiKeyHtml(); }
-  AI.onChange(() => { if (!$('#vHome').classList.contains('hidden')) renderKey(); });
-  function runKeyTest() {
-    keyState.busy = true; keyState.msg = ''; renderKey();
-    return AI.testKey().then(r => {
-      keyState.busy = false; keyState.ok = r.ok;
-      keyState.msg = r.ok ? T('key.ok') : T('ai.err.' + r.code);
-      renderKey();
-      return r;
-    });
+  // Panel yeniden çizilirken yazılmakta olan alanlar korunur (canlı kullanım güncellemesi formu silmesin)
+  function renderKey() {
+    const b = $('#aiKeyBox');
+    if (!b) return;
+    const keep = {};
+    b.querySelectorAll('input[name]').forEach(i => { if (i.type !== 'checkbox' && i.type !== 'hidden') keep[i.name] = i.value; });
+    b.innerHTML = aiKeyHtml();
+    b.querySelectorAll('input[name]').forEach(i => { if (keep[i.name]) i.value = keep[i.name]; });
   }
-  on({
-    'key-test': () => runKeyTest(),
-    'key-edit': () => { keyState.editing = true; keyState.msg = ''; renderKey(); const i = $('#aiKeyForm input'); if (i) i.focus(); },
-    'key-del': () => {
-      if (!confirm(T('key.delAsk'))) return;
-      AI.setKey(''); Object.assign(keyState, { editing: false, msg: '', ok: null }); renderKey();
-    }
-  });
-  document.addEventListener('submit', e => {
-    if (e.target.id !== 'aiKeyForm') return;
-    e.preventDefault();
-    const k = String(e.target.elements.key.value || '').trim();
-    if (!k || keyState.busy) return;
-    keyState.busy = true; keyState.msg = ''; renderKey();
-    // Anthropic reddederse kaydedilmez, eski anahtar (varsa) kalır
-    AI.saveKey(k).then(r => {
-      keyState.busy = false;
-      keyState.ok = r.ok;
-      keyState.msg = r.ok ? T('key.ok') : T(r.code === 'format' ? 'key.format' : 'ai.err.' + r.code);
-      if (r.saved) keyState.editing = false;
-      renderKey();
-    });
-  });
+  AI.onChange(() => { if (!$('#vHome').classList.contains('hidden')) renderKey(); });
 
   App.view('home', {
     show() {
