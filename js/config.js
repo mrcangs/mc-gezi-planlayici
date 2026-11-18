@@ -12,4 +12,4 @@ window.FIREBASE_CONFIG = {
 
 // İsteğe bağlı: YouTube Data API anahtarı. Varsa AI, video açıklamasıyla birlikte en çok beğenilen yorumları da okur.
 // Google Cloud Console'da yalnızca bu sitenin adresi (HTTP referrer) ve "YouTube Data API v3" ile sınırlandırılmalıdır.
-window.YOUTUBE_API_KEY = '';
+window.YOUTUBE_API_KEY = 'AIzaSyCLpkkRTwAg54ZEDuCpb_m3cOx2mS2ydEA';
