@@ -99,10 +99,17 @@
 
   const MAX_FILE_MB = 3;
 
+  // Kişiyi seçen hesabın Google fotoğrafı (members/<uid>/photo); yoksa ya da yüklenemezse renkli baş harf
+  function photoOf(id) {
+    const uid = (D().claims || {})[id];
+    return uid ? App.safePhoto(((D().members || {})[uid] || {}).photo) : null;
+  }
+
   function avatar(id, size = 'w-7 h-7 text-[11px]') {
     const p = person(id);
     if (!p) return '';
-    return `<span class="${size} shrink-0 rounded-full inline-flex items-center justify-center font-extrabold text-white" style="background:${esc(p.color || '#64748b')}" title="${esc(p.name)}">${esc(p.name[0])}</span>`;
+    const ph = photoOf(id);
+    return `<span class="${size} relative shrink-0 rounded-full inline-flex items-center justify-center font-extrabold text-white overflow-hidden" style="background:${esc(p.color || '#64748b')}" title="${esc(p.name)}">${esc(p.name[0])}${ph ? `<img src="${esc(ph)}" alt="" referrerpolicy="no-referrer" loading="lazy" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">` : ''}</span>`;
   }
 
   // ---------- durum ----------
@@ -503,6 +510,7 @@
           <span class="tag tag-${esc(a.cat)}">${esc(catLabel)}</span>
           ${a.res ? `<span class="tag tag-res"><i class="fa-solid fa-ticket" aria-hidden="true"></i> ${esc(T('pool.res'))}</span>` : ''}
           ${a.kid ? '<span class="tag surface2 muted"><i class="fa-solid fa-child" aria-hidden="true"></i></span>' : ''}
+          ${a.ai ? `<span class="tag surface2 muted" title="${esc(T('ai.madeBy'))}"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> AI</span>` : ''}
           ${a.area ? `<span class="text-[11px] muted truncate max-w-full">${esc(a.area)}</span>` : ''}
         </div>
         <p class="text-xs muted mt-1 leading-snug [overflow-wrap:anywhere]">${linkify(a.desc)}</p>
@@ -545,9 +553,19 @@
     }).join('');
   }
 
+  function aiEmptyCard(textKey, tab) {
+    return `<div class="dashed rounded-2xl p-4 text-center space-y-2.5">
+      <i class="fa-solid fa-wand-magic-sparkles text-xl accent" aria-hidden="true"></i>
+      <p class="text-sm">${esc(T(textKey))}</p>
+      <button data-action="ai-open" data-tab="${tab}" class="h-10 px-4 rounded-xl btn-accent text-sm font-bold"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${esc(T(tab === 'practical' ? 'ai.goPractical' : 'ai.goPlaces'))}</button>
+    </div>`;
+  }
+
   function renderPool() {
     $('#poolCats').innerHTML = catChipsHtml();
-    $('#poolList').innerHTML = poolListHtml(filteredActivities(null), null);
+    $('#poolList').innerHTML = allActivities().length
+      ? poolListHtml(filteredActivities(null), null)
+      : aiEmptyCard('ai.poolEmpty', 'places');
   }
 
   // ---------- RENDER: kararlar, ekip, checklist ----------
@@ -623,9 +641,17 @@
   }
 
   function renderPractical() {
-    if (!PRACTICAL.length) { $('#practical').innerHTML = ''; return; }
+    const title = `<h2 class="text-sm font-extrabold flex items-center gap-2"><i class="fa-solid fa-circle-info accent" aria-hidden="true"></i> ${esc(T('practical.title'))}</h2>`;
+    if (!PRACTICAL.length) {
+      $('#practical').innerHTML = `<div class="surface rounded-2xl p-4 space-y-3">${title}
+        ${isOwner() ? aiEmptyCard('ai.practicalEmpty', 'practical') : `<p class="text-xs muted">${esc(T('ai.practicalEmptyMember'))}</p>`}
+      </div>`;
+      return;
+    }
     $('#practical').innerHTML = `<div class="surface rounded-2xl p-4">
-      <h2 class="text-sm font-extrabold mb-3 flex items-center gap-2"><i class="fa-solid fa-circle-info accent" aria-hidden="true"></i> ${esc(T('practical.title'))}</h2>
+      <div class="flex items-center justify-between gap-2 mb-3">${title}
+        ${isOwner() ? `<button data-action="ai-open" data-tab="practical" class="h-8 px-2.5 rounded-lg btn-ghost text-xs font-bold" title="${esc(T('ai.refreshPractical'))}" aria-label="${esc(T('ai.refreshPractical'))}"><i class="fa-solid fa-wand-magic-sparkles accent" aria-hidden="true"></i></button>` : ''}
+      </div>
       <div class="space-y-3">${PRACTICAL.map(p => `<div class="flex gap-3">
         <i class="fa-solid ${p.icon} w-4 text-center terra mt-0.5" aria-hidden="true"></i>
         <div><p class="text-xs font-bold">${esc(p.title)}</p><p class="text-xs muted leading-snug">${esc(p.text)}</p></div>
@@ -835,6 +861,7 @@
   }
 
   function closeSheet() {
+    if (aiJob) { aiJob.abort(); aiJob = null; }
     state.sheet = null;
     const el = $('#sheet');
     el.classList.add('sheet-hidden');
@@ -1014,6 +1041,7 @@
       if (keep.scroll) $('#detailBody').scrollTop = keep.scroll;
       return;
     }
+    if (s.type === 'ai') { renderAiSheet(c, isUpdate); return; }
     if (s.type === 'custom') {
       if (isUpdate) return;
       const lbl = 'text-xs font-bold muted';
@@ -1078,6 +1106,274 @@
         </div>`;
     }
   }
+
+  // ---------- AI önerileri (Claude) ----------
+  // Plan sahibi: öneriler def/pool'a (havuz), pratik bilgiler def/practical'a yazılır.
+  // Diğer üyeler: öneriler custom_activities'e "ekip önerisi" olarak eklenir; pratik bilgileri sahibi oluşturur.
+  let aiJob = null, aiClock = null;
+  const isOwner = () => !!META.owner && META.owner === App.user().uid;
+  const bilingual = () => PEOPLE.some(p => p.lang === 'es');
+  const normName = s => String(s || '').toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i').replace(/[^a-z0-9]+/g, '');
+
+  function aiContext() {
+    const def = D().def || {};
+    const kids = PEOPLE.filter(p => p.age != null && p.age < 18);
+    return {
+      city: CITY, cityOrig: def.cityLocal || '', country: L(def.country) || META.country || '',
+      start: DAYS[0].date, end: DAYS[DAYS.length - 1].date, days: DAYS.length,
+      people: `${PEOPLE.length} kişi` + (kids.length ? `, ${kids.length} çocuk (yaşları: ${kids.map(k => k.age).join(', ')})` : ', hepsi yetişkin'),
+      kids: kids.length > 0,
+      slots: SLOTS.map(s => ({ key: s.key, label: String(s.label), start: s.start, end: s.end, nap: !!s.nap })),
+      existing: allActivities().map(a => a.name),
+      es: bilingual()
+    };
+  }
+
+  // Modelden gelen veri arayüze girmeden önce süzülür
+  function cleanPlaces(list) {
+    const slotKeys = new Set(SLOTS.map(s => s.key));
+    const have = new Set(allActivities().map(a => normName(a.name)));
+    const seen = new Set();
+    return (Array.isArray(list) ? list : []).filter(p => p && typeof p.name === 'string' && p.name.trim()).map(p => {
+      const n = normName(p.name);
+      const dup = have.has(n) || seen.has(n);
+      seen.add(n);
+      return {
+        name: p.name.trim().slice(0, 80), area: String(p.area || '').trim().slice(0, 60),
+        cat: AI.CATS.includes(p.cat) ? p.cat : 'sight', icon: safeIcon(p.icon, 'fa-star'),
+        desc_tr: String(p.desc_tr || '').trim().slice(0, 300), desc_es: String(p.desc_es || '').trim().slice(0, 300),
+        best: (Array.isArray(p.best) ? p.best : []).filter(k => slotKeys.has(k)),
+        res: p.res === true, kid: p.kid === true,
+        url: /^https:\/\/[^\s"'<>]{4,300}$/.test(p.url || '') ? p.url : '',
+        dup
+      };
+    });
+  }
+  function cleanPractical(list) {
+    return (Array.isArray(list) ? list : []).filter(p => p && p.title_tr && p.text_tr).slice(0, 16).map(p => ({
+      icon: safeIcon(p.icon, 'fa-circle-info'),
+      title_tr: String(p.title_tr).slice(0, 80), text_tr: String(p.text_tr).slice(0, 500),
+      title_es: String(p.title_es || '').slice(0, 80), text_es: String(p.text_es || '').slice(0, 500)
+    }));
+  }
+
+  function aiRun() {
+    const s = state.sheet;
+    if (!s || s.type !== 'ai' || aiJob) return;
+    const ctx = aiContext();
+    const req = s.tab === 'practical' ? AI.practicalRequest(ctx) : AI.placesRequest(ctx, (s.wish || '').trim().slice(0, 300), s.count || 15);
+    const job = AI.ask(req);
+    aiJob = job;
+    Object.assign(s, { phase: 'loading', started: Date.now(), err: '' });
+    renderSheet(false);
+    clearInterval(aiClock);
+    aiClock = setInterval(() => { const el = $('#aiElapsed'); if (el && state.sheet === s) el.textContent = T('ai.elapsed', { n: Math.round((Date.now() - s.started) / 1000) }); }, 1000);
+    job.promise.then(data => {
+      if (state.sheet !== s) return;
+      if (s.tab === 'practical') {
+        s.result = cleanPractical(data.items);
+      } else {
+        s.result = cleanPlaces(data.places);
+        s.sel = {};
+        s.result.forEach((p, i) => { if (!p.dup) s.sel[i] = true; });
+      }
+      s.phase = s.result.length ? 'result' : 'error';
+      if (!s.result.length) s.err = 'empty';
+    }, e => {
+      if (state.sheet !== s) return;
+      if (e.code === 'aborted') { s.phase = 'form'; } else { s.phase = 'error'; s.err = e.code || 'unknown'; }
+    }).then(() => {
+      if (aiJob === job) aiJob = null;
+      clearInterval(aiClock);
+      if (state.sheet === s) renderSheet(false);
+    });
+  }
+
+  function aiAddPlaces() {
+    const s = state.sheet;
+    const picked = (s.result || []).filter((p, i) => s.sel[i]);
+    if (!picked.length) return;
+    const es = bilingual();
+    const done = n => { toast(T('ai.added', { n })); closeSheet(); state.poolCat = 'all'; renderPool(); };
+    const fail = err => toast(T('toast.saveFail', { e: err.code || err.message }));
+    if (isOwner()) {
+      const items = picked.map(p => App.clean({
+        id: 'ai' + App.randomId(10), name: p.name, area: p.area, cat: p.cat, icon: p.icon,
+        desc: es && p.desc_es ? { tr: p.desc_tr, es: p.desc_es } : p.desc_tr,
+        best: p.best.length ? p.best : null, res: p.res || null, kid: p.kid || null, url: p.url || null, ai: true
+      }));
+      tripRef.child('def/pool').set(arr((D().def || {}).pool).concat(items)).then(() => done(items.length), fail);
+    } else {
+      const upd = {};
+      picked.forEach(p => {
+        upd['custom_activities/' + tripRef.child('custom_activities').push().key] = {
+          name: p.name, area: p.area, cat: p.cat, desc: p.desc_tr, addedBy: state.me, addedAt: TS()
+        };
+      });
+      tripRef.update(upd).then(() => done(picked.length), fail);
+    }
+  }
+
+  function aiSavePractical() {
+    const s = state.sheet;
+    if (!isOwner() || !(s.result || []).length) return;
+    const es = bilingual();
+    const items = s.result.map(p => ({
+      icon: p.icon,
+      title: es && p.title_es ? { tr: p.title_tr, es: p.title_es } : p.title_tr,
+      text: es && p.text_es ? { tr: p.text_tr, es: p.text_es } : p.text_tr,
+      ai: true
+    }));
+    tripRef.child('def/practical').set(items).then(() => { toast(T('ai.savedPractical')); closeSheet(); },
+      err => toast(T('toast.saveFail', { e: err.code })));
+  }
+
+  const slotName = k => { const sl = slotOf(k); return sl ? sl.label : k; };
+
+  function renderAiSheet(c, isUpdate) {
+    const s = state.sheet;
+    // Canlı veri değişince yazılan isteği / beklemeyi bozma; sadece sonuç listesi tazelenir
+    if (isUpdate && s.phase !== 'result') return;
+    const owner = isOwner();
+    const bodyCls = 'px-5 py-4 space-y-4 overflow-y-auto flex-1';
+    const foot = inner => `<div class="px-5 py-3 border-t line pb-safe flex gap-2">${inner}</div>`;
+    const btn = (action, label, icon, cls) => `<button data-action="${action}" class="h-12 rounded-xl text-sm font-bold ${cls}">${icon ? `<i class="fa-solid ${icon}" aria-hidden="true"></i> ` : ''}${esc(label)}</button>`;
+    const head = sheetHeader(`<i class="fa-solid fa-wand-magic-sparkles accent" aria-hidden="true"></i> ${esc(T('ai.title'))}`, esc(T('ai.sub', { city: CITY })));
+
+    if (!AI.hasKey()) {
+      c.innerHTML = head + `<form id="aiKeyFormTrip" class="${bodyCls}">
+          <p class="text-sm">${esc(T('ai.needKey'))}</p>
+          <input name="key" type="password" data-autofocus autocomplete="off" spellcheck="false" placeholder="sk-ant-…" class="w-full rounded-xl px-3 py-2.5 text-sm font-mono" aria-label="${esc(T('key.label'))}">
+          ${s.err ? `<p class="text-xs font-bold bad">${esc(T(s.err === 'format' ? 'key.format' : 'ai.err.' + s.err))}</p>` : ''}
+          <button type="submit" class="w-full h-12 rounded-xl btn-accent text-sm font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.save'))}</button>
+          <div class="border-t line pt-4">${AI.guideHtml()}</div>
+          <p class="text-[11px] muted">${esc(T('key.privacy'))}</p>
+        </form>`;
+      return;
+    }
+
+    const tabs = owner ? `<div class="grid grid-cols-2 gap-2">${[['places', T('ai.tabPlaces'), 'fa-location-dot'], ['practical', T('ai.tabPractical'), 'fa-circle-info']].map(([k, l, ic]) =>
+      `<button data-action="ai-tab" data-tab="${k}" class="h-10 rounded-xl text-sm font-bold ${s.tab === k ? 'btn-accent' : 'btn-ghost'}" ${s.phase === 'loading' ? 'disabled' : ''}><i class="fa-solid ${ic}" aria-hidden="true"></i> ${esc(l)}</button>`).join('')}</div>` : '';
+
+    if (s.phase === 'loading') {
+      c.innerHTML = head + `<div class="${bodyCls}">${tabs}
+          <div class="py-10 text-center space-y-3">
+            <i class="fa-solid fa-wand-magic-sparkles fa-beat-fade text-3xl accent" aria-hidden="true"></i>
+            <p class="font-extrabold">${esc(T(s.tab === 'practical' ? 'ai.loadingPractical' : 'ai.loadingPlaces'))}</p>
+            <p id="aiElapsed" class="text-xs muted" aria-live="polite">${esc(T('ai.elapsed', { n: 0 }))}</p>
+            <p class="text-[11px] muted">${esc(T('ai.slow'))}</p>
+          </div>
+        </div>` + foot(btn('ai-cancel', T('ai.cancel'), 'fa-xmark', 'btn-ghost w-full'));
+      return;
+    }
+
+    if (s.phase === 'error') {
+      const code = s.err || 'unknown';
+      c.innerHTML = head + `<div class="${bodyCls}">${tabs}
+          <div class="rounded-2xl surface2 p-4 space-y-2">
+            <p class="text-sm font-extrabold bad"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${esc(T('ai.failed'))}</p>
+            <p class="text-sm">${esc(T('ai.err.' + code))}</p>
+          </div>
+          ${code === 'limit' ? AI.limitHtml(true) : ''}
+        </div>` + foot((code === 'auth' || code === 'permission' || code === 'credit' ? btn('ai-key-reset', T('key.change'), 'fa-key', 'btn-ghost flex-1') : btn('ai-back', T('ai.back'), 'fa-arrow-left', 'btn-ghost flex-1')) + btn('ai-run', T('ai.retry'), 'fa-rotate-right', 'btn-accent flex-1'));
+      return;
+    }
+
+    if (s.phase === 'result' && s.tab === 'practical') {
+      c.innerHTML = head + `<div class="${bodyCls}">${tabs}
+          <p class="text-xs muted">${esc(T('ai.reviewPractical'))}</p>
+          <div class="space-y-3">${s.result.map(p => `<div class="flex gap-3">
+            <i class="fa-solid ${p.icon} w-4 text-center terra mt-0.5" aria-hidden="true"></i>
+            <div><p class="text-sm font-bold">${esc(p.title_tr)}</p><p class="text-xs muted leading-snug">${esc(p.text_tr)}</p></div>
+          </div>`).join('')}</div>
+          ${PRACTICAL.length ? `<p class="text-[11px] terra font-bold">${esc(T('ai.replaceWarn', { n: PRACTICAL.length }))}</p>` : ''}
+        </div>` + foot(btn('ai-run', T('ai.again'), 'fa-rotate-right', 'btn-ghost flex-1') + btn('ai-save-practical', T('ai.savePractical'), 'fa-check', 'btn-accent flex-1'));
+      return;
+    }
+
+    if (s.phase === 'result') {
+      const keep = isUpdate ? ($('#aiList') || {}).scrollTop : 0;
+      const n = Object.values(s.sel).filter(Boolean).length;
+      c.innerHTML = head + `<div id="aiList" class="${bodyCls}">${tabs}
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs muted">${esc(T(owner ? 'ai.reviewPlaces' : 'ai.reviewPlacesMember'))}</p>
+            <button data-action="ai-sel-all" class="text-xs font-bold accent shrink-0">${esc(T(n === s.result.length ? 'ai.selNone' : 'ai.selAll'))}</button>
+          </div>
+          <div class="space-y-2">${s.result.map((p, i) => {
+            const on = !!s.sel[i];
+            return `<button data-action="ai-sel" data-i="${i}" aria-pressed="${on}" class="w-full text-left rounded-xl p-3 flex gap-3 border transition ${on ? 'ring-accent line surface' : 'line surface2'}">
+              <span class="w-5 h-5 mt-0.5 shrink-0 rounded-md border-2 flex items-center justify-center ${on ? 'btn-accent border-transparent' : 'line'}">${on ? '<i class="fa-solid fa-check text-[10px]" aria-hidden="true"></i>' : ''}</span>
+              <span class="tag-${esc(p.cat)} w-9 h-9 shrink-0 rounded-xl flex items-center justify-center"><i class="fa-solid ${p.icon}" aria-hidden="true"></i></span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-extrabold leading-snug">${esc(p.name)}</span>
+                <span class="flex items-center gap-1.5 flex-wrap mt-0.5">
+                  <span class="tag tag-${esc(p.cat)}">${esc(App.catLabel(p.cat))}</span>
+                  ${p.dup ? `<span class="tag surface2 terra">${esc(T('ai.dup'))}</span>` : ''}
+                  ${p.res ? `<span class="tag tag-res"><i class="fa-solid fa-ticket" aria-hidden="true"></i> ${esc(T('pool.res'))}</span>` : ''}
+                  ${p.kid ? '<span class="tag surface2 muted"><i class="fa-solid fa-child" aria-hidden="true"></i></span>' : ''}
+                  ${p.area ? `<span class="text-[11px] muted">${esc(p.area)}</span>` : ''}
+                </span>
+                <span class="block text-xs muted mt-1 leading-snug">${esc(App.lang() === 'es' && p.desc_es ? p.desc_es : p.desc_tr)}</span>
+                ${p.best.length ? `<span class="block text-[11px] mt-1 accent font-bold">${esc(p.best.map(slotName).join(' · '))}</span>` : ''}
+              </span>
+            </button>`;
+          }).join('')}</div>
+        </div>` + foot(btn('ai-run', T('ai.again'), 'fa-rotate-right', 'btn-ghost px-4') + `<button data-action="ai-add" class="h-12 flex-1 rounded-xl btn-accent text-sm font-bold" ${n ? '' : 'disabled'}><i class="fa-solid fa-plus" aria-hidden="true"></i> ${esc(T('ai.add', { n }))}</button>`);
+      if (keep) $('#aiList').scrollTop = keep;
+      return;
+    }
+
+    // form
+    const isPr = s.tab === 'practical';
+    c.innerHTML = head + `<div class="${bodyCls}">${tabs}
+        ${isPr ? `<p class="text-sm">${esc(T('ai.practicalIntro'))}</p>
+            ${PRACTICAL.length ? `<p class="text-xs terra font-bold">${esc(T('ai.replaceWarn', { n: PRACTICAL.length }))}</p>` : ''}`
+          : `<label class="block"><span class="text-xs font-bold muted">${esc(T('ai.wish'))}</span>
+              <textarea id="aiWish" data-autofocus maxlength="300" rows="3" class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm" placeholder="${esc(T('ai.wishPh'))}">${esc(s.wish || '')}</textarea></label>
+            <div><span class="text-xs font-bold muted">${esc(T('ai.count'))}</span>
+              <div class="grid grid-cols-3 gap-2 mt-1">${[10, 15, 25].map(n => `<button data-action="ai-count" data-n="${n}" class="h-10 rounded-xl text-sm font-bold ${s.count === n ? 'btn-soft ring-accent' : 'btn-ghost'}">${n}</button>`).join('')}</div>
+            </div>
+            <p class="text-[11px] muted">${esc(T(owner ? 'ai.whereOwner' : 'ai.whereMember'))}</p>`}
+        <div class="border-t line pt-3">${AI.limitHtml(true)}</div>
+        <p class="text-[11px] muted"><i class="fa-solid fa-key" aria-hidden="true"></i> ${esc(T('ai.using', { key: AI.maskKey(AI.getKey()) }))} · <button data-action="ai-key-reset" class="underline">${esc(T('key.change'))}</button></p>
+      </div>` + foot(btn('ai-run', T(isPr ? 'ai.goPractical' : 'ai.goPlaces'), 'fa-wand-magic-sparkles', 'btn-accent w-full'));
+  }
+
+  const aiActions = {
+    'ai-open': el => {
+      const tab = el.dataset.tab === 'practical' && isOwner() ? 'practical' : 'places';
+      openSheet({ type: 'ai', tab, phase: 'form', wish: '', count: 15, result: [], sel: {} });
+    },
+    'ai-tab': el => { const s = state.sheet; if (!s || aiJob) return; Object.assign(s, { tab: el.dataset.tab === 'practical' ? 'practical' : 'places', phase: 'form', result: [], sel: {} }); renderSheet(false); },
+    'ai-count': el => { state.sheet.count = Number(el.dataset.n) || 15; renderSheet(false); },
+    'ai-run': () => aiRun(),
+    'ai-cancel': () => { if (aiJob) aiJob.abort(); },
+    'ai-back': () => { state.sheet.phase = 'form'; renderSheet(false); },
+    'ai-key-reset': () => { if (!confirm(T('key.delAsk'))) return; AI.setKey(''); Object.assign(state.sheet, { phase: 'form', err: '' }); renderSheet(false); },
+    'ai-sel': el => { const s = state.sheet; const i = Number(el.dataset.i); s.sel[i] = !s.sel[i]; renderSheet(true); },
+    'ai-sel-all': () => { const s = state.sheet; const all = s.result.every((p, i) => s.sel[i]); s.sel = {}; if (!all) s.result.forEach((p, i) => { s.sel[i] = true; }); renderSheet(true); },
+    'ai-add': () => aiAddPlaces(),
+    'ai-save-practical': () => aiSavePractical()
+  };
+
+  document.addEventListener('input', e => { if (e.target.id === 'aiWish' && state.sheet && state.sheet.type === 'ai') state.sheet.wish = e.target.value; });
+  document.addEventListener('submit', e => {
+    if (e.target.id !== 'aiKeyFormTrip') return;
+    e.preventDefault();
+    const s = state.sheet;
+    const k = String(e.target.elements.key.value || '').trim();
+    if (!s || !k || s.busy) return;
+    s.busy = true; s.err = ''; renderSheet(false);
+    AI.saveKey(k).then(r => {
+      s.busy = false;
+      s.phase = 'form';
+      s.err = r.saved ? '' : r.code; // kaydedildiyse form açılır; ağ hatası varsa denemede tekrar görünür
+      if (state.sheet === s) renderSheet(false);
+    });
+  });
+  App.on(aiActions);
+  // Rehber açıldı / limit değişti: AI penceresi açıksa yeniden çiz
+  AI.onChange(() => { if (state.sheet && state.sheet.type === 'ai' && state.sheet.phase !== 'loading') renderSheet(false); });
 
   // ---------- olaylar ----------
   function inviteUrl() {
@@ -1362,6 +1658,12 @@
     App.setLang(raw && raw.lang === 'es' ? 'es' : 'tr');
     applyDef(v.def, v.meta);
     state.me = raw ? m.personId : null;
+    // Google fotoğrafı değiştiyse (ya da eski üyelikte yoksa) üye kaydına yazılır; diğer üyeler avatarda görür
+    const ph = App.photoUrl();
+    if (v.members && v.members[App.user().uid] && (m.photo || null) !== ph && !onData.photoTried) {
+      onData.photoTried = true;
+      tripRef.child(`members/${App.user().uid}/photo`).set(ph).catch(() => {});
+    }
     if (!dayOf(state.day)) state.day = todayKey() || (DAYS[0] || {}).key || 'day1';
     if (!state.loaded) {
       state.loaded = true;
@@ -1381,6 +1683,8 @@
     state.me = null;
     state.data = {};
     defSig = '';
+    onData.photoTried = false;
+    if (aiJob) { aiJob.abort(); aiJob = null; }
     App.setLang('tr');
   }
 

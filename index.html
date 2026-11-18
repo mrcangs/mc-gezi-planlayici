@@ -164,7 +164,10 @@
         <div class="lg:sticky lg:top-[72px] space-y-3">
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-extrabold" data-i18n="pool.title">Mekan & Aktivite Havuzu</h2>
-            <button data-action="custom" class="text-xs font-bold accent flex items-center gap-1"><i class="fa-solid fa-plus" aria-hidden="true"></i> <span data-i18n="pool.custom">Kendi önerin</span></button>
+            <div class="flex items-center gap-3 shrink-0">
+              <button data-action="ai-open" data-tab="places" class="text-xs font-bold accent flex items-center gap-1 whitespace-nowrap" title="AI ile öner" data-i18n-aria="ai.btnAria"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> <span data-i18n="ai.btn">AI</span></button>
+              <button data-action="custom" class="text-xs font-bold accent flex items-center gap-1 whitespace-nowrap"><i class="fa-solid fa-plus" aria-hidden="true"></i> <span data-i18n="pool.custom">Kendi önerin</span></button>
+            </div>
           </div>
           <div class="relative">
             <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs muted" aria-hidden="true"></i>
@@ -239,6 +242,8 @@
   <script src="js/config.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/core.js"></script>
+  <script src="js/places.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/home.js"></script>
   <script src="js/trip.js"></script>
   <script src="js/admin.js"></script>

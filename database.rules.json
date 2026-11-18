@@ -62,6 +62,9 @@
             ".validate": "newData.hasChildren(['code']) && newData.child('code').val() === newData.parent().parent().child('invite/code').val()",
             "personId": {
               ".validate": "newData.isString() && newData.parent().parent().parent().child('claims/' + newData.val()).val() === $uid && (!data.exists() || data.val() === newData.val())"
+            },
+            "photo": {
+              ".validate": "newData.isString() && newData.val().length <= 520 && newData.val().beginsWith('https://') && newData.val().contains('.googleusercontent.com/')"
             }
           }
         },

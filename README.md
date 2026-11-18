@@ -21,6 +21,28 @@ Statik site (GitHub Pages) + Firebase Realtime Database + Google girişi. Build 
 8. Realtime Database → **Data** sekmesinde `admins` altına bu kimliği ekle, değeri `true` olsun. Örnek: `admins/AbC123…: true`.
 9. Sayfayı yenile. Sağ üstte **Yönetim** butonu görünür. Oradan kendi e-postanı ve plan hakkını ekle.
 
+## Yeni plan: ülke ve şehir
+Yeni plan formunda önce ülke, sonra şehir seçilir. İki alan da yazarak filtrelenir.
+- Veri `data/countries.json` ve ülke başına `data/cities/<ISO>.json` dosyalarındadır. Şehir dosyası ancak ülke seçilince indirilir.
+- Kaynak: [GeoNames](https://www.geonames.org/) `cities1000` (nüfusu 1000'i geçen yerleşimler, CC BY 4.0). Ülke adları tarayıcının dil desteğiyle Türkçe gösterilir.
+- Türkçede farklı adı olan bazı şehirler (Münih, Floransa, Viyana…) Türkçe adıyla görünür. Aramada yerel ad da eşleşir.
+- Listede olmayan bir yer yazılan adla kullanılabilir.
+- Veriyi yenilemek için GeoNames dosyalarını indir ve `tools/build-cities.ps1 -Raw <klasör> -Out data` komutunu çalıştır.
+
+## AI önerileri (Claude)
+Plan ekranında **AI** düğmesi Claude ile mekan önerisi ve pratik bilgi hazırlar.
+- Herkes kendi Claude API anahtarını ana sayfadaki **Claude API anahtarı** kutusuna girer. Anahtar ilk AI kullanımında plan ekranından da girilebilir.
+- Anahtarı olmayanlar için **Anahtar sayfasına git** düğmesi ve 4 adımlı **"Anahtarım yok, nasıl alırım?"** rehberi var. Adımlar: Console'a gir, kredi yükle, anahtar oluştur, yapıştır.
+- **Aylık kullanım limiti:** 50k, 150k (varsayılan) ya da 500k token ya da sınırsız seçilebilir. Kullanım her yanıttan sonra token ve yaklaşık $ olarak sayılır. Limit dolunca yeni istek gönderilmez. Sayaç tarayıcı başınadır ve ay başında sıfırlanır. Kesin üst sınır için Console'daki harcama limiti önerilir.
+- Anahtar yalnızca o tarayıcının `localStorage` alanında durur. Veritabanına yazılmaz ve yalnızca Anthropic'e gönderilir. Kullanım ücreti anahtarın sahibinin hesabına yansır.
+- İstek tarayıcıdan doğrudan Anthropic API'sine gider. Model `claude-opus-5-5`'tir. Yanıt JSON şemasıyla alınır ve arayüze girmeden önce süzülür.
+- **Plan sahibi:** seçtiği öneriler mekan havuzuna eklenir ve pratik bilgileri plana kaydedebilir.
+- **Diğer üyeler:** seçtikleri öneriler havuza "Ekip önerisi" olarak eklenir.
+- AI'dan gelen kartlarda küçük bir **AI** etiketi bulunur.
+
+## Profil fotoğrafları
+Plana katılan herkesin Google profil fotoğrafı üyelik kaydına (`trips/<id>/members/<uid>/photo`) yazılır ve avatarlarda gösterilir. Fotoğraf yoksa ya da yüklenemezse renkli baş harf görünür. Yalnızca `googleusercontent.com` adresleri kabul edilir.
+
 ## Barselona planını içe aktarma
 Yönetim sayfasındaki **Barselona planını içe aktar** bölümüne eski sitenin davet anahtarını yapıştır.
 
@@ -42,3 +64,5 @@ Eski site ve veritabanı değişmez. İçe aktarılan plan, plan hakkından bir 
   - Bir kişi başka bir hesap tarafından seçilmişse alınamaz.
   - Plan sayısı allowlist'teki limitle sınırlıdır; sayaç yalnızca birer artar.
 - Bilet PDF'leri ve kişisel bilgiler repoya değil, yalnızca veritabanına girer.
+- Claude API anahtarları ne repoya ne veritabanına girer. Her kullanıcının anahtarı kendi tarayıcısında kalır.
+- `database.rules.json` değiştiğinde Firebase Console → Realtime Database → **Rules** sekmesine yeniden yapıştırıp **Publish** et.

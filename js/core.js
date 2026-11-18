@@ -154,12 +154,16 @@ window.App = (function () {
     return Promise.all(tasks).then(() => { account.loaded = true; });
   }
 
+  // Google profil fotoğrafı: yalnızca googleusercontent.com adresleri kabul edilir (başka sunucuya istek gitmesin)
+  const safePhoto = u => /^https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[^\s"'<>]{1,500}$/.test(u || '') ? u : null;
+  const photoUrl = () => (user && safePhoto(user.photoURL)) || null;
+
   function avatarHtml(size) {
     if (!user) return '';
     const name = user.displayName || user.email || '?';
-    return user.photoURL
-      ? `<img src="${esc(user.photoURL)}" alt="${esc(name)}" referrerpolicy="no-referrer" class="${size} rounded-full object-cover">`
-      : `<span class="${size} rounded-full btn-accent inline-flex items-center justify-center font-extrabold">${esc(name[0])}</span>`;
+    // Fotoğraf yüklenemezse altındaki baş harf görünür
+    const ph = photoUrl();
+    return `<span class="${size} relative shrink-0 rounded-full btn-accent inline-flex items-center justify-center font-extrabold overflow-hidden" title="${esc(name)}">${esc(name[0])}${ph ? `<img src="${esc(ph)}" alt="" referrerpolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">` : ''}</span>`;
   }
 
   // Tıklama eylemleri: data-action="…" → kayıtlı fonksiyon (her sayfa kendi eylemlerini ekler)
@@ -206,7 +210,7 @@ window.App = (function () {
   return {
     $, $$, LS, esc, pad, localDate, fileSize, linkify, clean, randomId, emailKey,
     T, TL, L, setLang, locale, applyStaticText, lang: () => LANG,
-    CATEGORIES, catLabel, toast, screen, message, view, go, on, copyText, avatarHtml,
+    CATEGORIES, catLabel, toast, screen, message, view, go, on, copyText, avatarHtml, safePhoto, photoUrl,
     TS, db: () => db, user: () => user, account, loadAccount
   };
 })();

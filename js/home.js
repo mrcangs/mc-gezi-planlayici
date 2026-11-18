@@ -67,9 +67,75 @@
           <p class="text-xs muted">${esc(App.user().email || '')}</p>
           <button data-action="copy-uid" class="text-[11px] muted underline">${esc(T('home.uid'))}: <span class="font-mono">${esc(uid())}</span></button>
         </section>
+        <section id="aiKeyBox">${aiKeyHtml()}</section>
       </main>`;
     screen('vHome');
   }
+
+  // ---------- Claude API anahtarı (yalnızca bu tarayıcıda) ----------
+  const keyState = { editing: false, msg: '', ok: null, busy: false };
+  function aiKeyHtml() {
+    const key = AI.getKey();
+    const s = keyState;
+    const status = s.msg ? `<p class="text-xs font-bold ${s.ok ? 'ok' : 'bad'}">${esc(s.msg)}</p>` : '';
+    const form = `<form id="aiKeyForm" class="flex gap-2">
+        <input name="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" class="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm font-mono" aria-label="${esc(T('key.label'))}">
+        <button type="submit" class="h-11 px-4 rounded-xl btn-accent text-sm font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.save'))}</button>
+      </form>`;
+    return `<div class="surface rounded-2xl p-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <span class="w-9 h-9 shrink-0 rounded-xl btn-soft flex items-center justify-center"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></span>
+        <div class="min-w-0">
+          <h2 class="text-sm font-extrabold">${esc(T('key.title'))}</h2>
+          <p class="text-xs muted">${esc(T('key.sub'))}</p>
+        </div>
+      </div>
+      ${key && !s.editing ? `<div class="flex items-center gap-2 flex-wrap">
+          <span class="tag surface2 ok font-mono"><i class="fa-solid fa-check" aria-hidden="true"></i> ${esc(AI.maskKey(key))}</span>
+          <button data-action="key-test" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold" ${s.busy ? 'disabled' : ''}>${esc(T(s.busy ? 'key.testing' : 'key.test'))}</button>
+          <button data-action="key-edit" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold">${esc(T('key.change'))}</button>
+          <button data-action="key-del" class="h-9 px-3 rounded-xl btn-ghost text-xs font-bold bad">${esc(T('key.del'))}</button>
+        </div>` : form}
+      ${status}
+      ${key && !s.editing ? '' : AI.guideHtml()}
+      ${key ? `<div class="border-t line pt-3">${AI.limitHtml()}</div>` : ''}
+      <p class="text-[11px] muted">${esc(T('key.privacy'))}</p>
+    </div>`;
+  }
+  function renderKey() { const b = $('#aiKeyBox'); if (b) b.innerHTML = aiKeyHtml(); }
+  AI.onChange(() => { if (!$('#vHome').classList.contains('hidden')) renderKey(); });
+  function runKeyTest() {
+    keyState.busy = true; keyState.msg = ''; renderKey();
+    return AI.testKey().then(r => {
+      keyState.busy = false; keyState.ok = r.ok;
+      keyState.msg = r.ok ? T('key.ok') : T('ai.err.' + r.code);
+      renderKey();
+      return r;
+    });
+  }
+  on({
+    'key-test': () => runKeyTest(),
+    'key-edit': () => { keyState.editing = true; keyState.msg = ''; renderKey(); const i = $('#aiKeyForm input'); if (i) i.focus(); },
+    'key-del': () => {
+      if (!confirm(T('key.delAsk'))) return;
+      AI.setKey(''); Object.assign(keyState, { editing: false, msg: '', ok: null }); renderKey();
+    }
+  });
+  document.addEventListener('submit', e => {
+    if (e.target.id !== 'aiKeyForm') return;
+    e.preventDefault();
+    const k = String(e.target.elements.key.value || '').trim();
+    if (!k || keyState.busy) return;
+    keyState.busy = true; keyState.msg = ''; renderKey();
+    // Anthropic reddederse kaydedilmez, eski anahtar (varsa) kalır
+    AI.saveKey(k).then(r => {
+      keyState.busy = false;
+      keyState.ok = r.ok;
+      keyState.msg = r.ok ? T('key.ok') : T(r.code === 'format' ? 'key.format' : 'ai.err.' + r.code);
+      if (r.saved) keyState.editing = false;
+      renderKey();
+    });
+  });
 
   App.view('home', {
     show() {
@@ -130,8 +196,9 @@
         <form id="newForm" class="space-y-4">
           <label class="block"><span class="${lbl}">${esc(T('new.name'))}</span><input name="title" required maxlength="60" class="${inp}" placeholder="${esc(T('new.namePh'))}"></label>
           <div class="grid grid-cols-2 gap-3">
-            <label class="block"><span class="${lbl}">${esc(T('new.city'))}</span><input name="city" required maxlength="40" class="${inp}" placeholder="${esc(T('new.cityPh'))}"></label>
-            <label class="block"><span class="${lbl}">${esc(T('new.country'))}</span><input name="country" maxlength="40" class="${inp}" placeholder="${esc(T('new.countryPh'))}"></label>
+            <div><label class="${lbl}" for="cbCountry">${esc(T('new.country'))}</label><div id="countryBox"></div></div>
+            <div><label class="${lbl}" for="cbCity">${esc(T('new.city'))}</label><div id="cityBox"></div></div>
+            <p class="col-span-2 -mt-1.5 text-[10px] muted">${esc(T('new.placesHint'))}</p>
             <label class="block"><span class="${lbl}">${esc(T('new.start'))}</span><input name="start" type="date" required class="${inp}"></label>
             <label class="block"><span class="${lbl}">${esc(T('new.end'))}</span><input name="end" type="date" required class="${inp}"></label>
           </div>
@@ -150,6 +217,31 @@
         </form>
       </main>`;
     screen('vNew');
+    setupPlaces();
+  }
+
+  // Önce ülke, sonra o ülkenin şehirleri; ikisi de yazarak filtrelenir. Şehir listede yoksa yazılan ad kullanılır.
+  function setupPlaces() {
+    newState.country = null; newState.city = null;
+    const cityCombo = Places.combo($('#cityBox'), {
+      placeholder: T('new.cityFirst'), disabled: true, allowFree: true,
+      load: () => [], sub: c => c.orig !== c.name ? [c.orig, c.admin].filter(Boolean).join(' · ') : c.admin,
+      freeLabel: q => T('new.useTyped', { q }), empty: T('new.noMatch'),
+      onPick: c => { newState.city = c; }
+    });
+    const countryCombo = Places.combo($('#countryBox'), {
+      placeholder: T('new.countryPh'), load: () => Places.countries(), empty: T('new.noMatch'),
+      sub: c => c.name !== c.en ? c.en : '',
+      onPick: c => {
+        if (newState.country && c && newState.country.code === c.code) return;
+        newState.country = c; newState.city = null;
+        cityCombo.reset(() => c ? Places.cities(c.code) : [], !c);
+        cityCombo.input.placeholder = c ? T('new.cityPh') : T('new.cityFirst');
+        if (c) { Places.cities(c.code).catch(() => {}); setTimeout(() => cityCombo.input.focus(), 0); }
+      }
+    });
+    countryCombo.input.id = 'cbCountry';
+    cityCombo.input.id = 'cbCity';
   }
 
   function readPeopleRows() {
@@ -174,9 +266,14 @@
   function createTrip(form) {
     readPeopleRows();
     const f = new FormData(form);
-    const title = String(f.get('title')).trim(), city = String(f.get('city')).trim(), country = String(f.get('country') || '').trim();
+    const title = String(f.get('title')).trim();
     const start = String(f.get('start')), end = String(f.get('end'));
     const err = msg => { const e = $('#newErr'); e.textContent = msg; e.classList.remove('hidden'); };
+    const c = newState.country, ct = newState.city;
+    if (!c) { err(T('new.errCountry')); $('#cbCountry').focus(); return; }
+    if (!ct || !ct.name.trim()) { err(T('new.errCity')); $('#cbCity').focus(); return; }
+    const city = ct.name.trim().slice(0, 60), country = c.name.slice(0, 60), countryCode = c.code;
+    const cityLocal = ct.orig && ct.orig !== ct.name ? ct.orig.slice(0, 60) : null;
     const dates = start && end && end >= start ? daysBetween(start, end) : [];
     if (!dates.length || dates.length > 30) { err(T('new.errDates')); return; }
     const people = newState.people.filter(p => p.name);
@@ -198,7 +295,7 @@
     Object.values(groups).forEach(g => { g.who = g.who.join(', '); });
 
     const def = {
-      city, country,
+      city, country, countryCode, cityLocal,
       people: peopleObj,
       groups,
       slots: RHYTHMS[f.get('rhythm') === 'kids' ? 'kids' : 'adults'],
@@ -209,10 +306,10 @@
     const code = randomId(12);
     const u = uid();
     const updates = {
-      [`trips/${tid}/meta`]: { title, city, country, start, end: dates[dates.length - 1], owner: u, status: 'active', createdAt: TS() },
+      [`trips/${tid}/meta`]: { title, city, country, countryCode, start, end: dates[dates.length - 1], owner: u, status: 'active', createdAt: TS() },
       [`trips/${tid}/invite`]: { code },
       [`trips/${tid}/def`]: clean(def),
-      [`trips/${tid}/members/${u}`]: { code, personId: me.id, at: TS() },
+      [`trips/${tid}/members/${u}`]: { code, personId: me.id, at: TS(), photo: App.photoUrl() },
       [`trips/${tid}/claims/${me.id}`]: u,
       [`users/${u}/planCount`]: account.count + 1,
       [`users/${u}/trips/${tid}`]: { title, city, start, end: dates[dates.length - 1], role: 'owner', at: TS() }
@@ -254,7 +351,7 @@
       // Zaten üyeyse doğrudan plana; değilse kodla üyelik yazılır (kurallar kodu doğrular)
       memberRef.once('value').then(s => s.exists(), () => false).then(isMember => {
         if (isMember) return true;
-        return memberRef.set({ code, at: TS() }).then(() => true, () => false);
+        return memberRef.set({ code, at: TS(), photo: App.photoUrl() }).then(() => true, () => false);
       }).then(ok => {
         if (!ok) { message(T('join.bad'), '', 'fa-link-slash'); return; }
         return db().ref(`trips/${id}/meta`).once('value').then(s => {
