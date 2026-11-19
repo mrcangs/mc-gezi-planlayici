@@ -166,6 +166,19 @@ Git geçmişinden çıkarılanlar:
 
 ---
 
+## Oturum 2 devamı — 2026-11-19
+
+- Kullanıcı Barselona içe aktarmasını denedi. 1. adım geçti (58 mekan, 6 gün, 4 kişi); 2. adım "HATA: eski veritabanı 400" verdi.
+- **Neden:** Kutuya eski sitenin tam davet linki yapıştırılmıştı. Yol `trips/https…#t=…` olunca Firebase "Invalid path" ile 400 dönüyor. Input'taki `pattern="[A-Za-z0-9_-]{20,}"` yeni tarayıcılarda (`v` bayrağıyla) geçersiz sayılıp yok sayıldığı için bunu engellemedi.
+- **Düzeltme (`b89f086`):**
+  - Kutu artık hem anahtarı hem tam linki kabul ediyor; anahtar linkin içinden (`#t=…`) çıkarılıyor.
+  - Pattern kaldırıldı.
+  - Hata olursa Firebase'in mesajı da günlükte gösteriliyor.
+- İçe aktarma 2. adımda durduğu için veritabanına hiçbir şey yazılmamıştı; plan hakkı da harcanmadı.
+- Not: Başka input'lara `pattern` eklenirse `-` karakteri sınıfın içinde `\-` diye kaçışlanmalı.
+
+---
+
 ## Bilinen sınırlar
 - Claude **videoyu izleyemez ve sesini işleyemez.** YouTube'da yalnızca başlık, açıklama, bölümler, yorumlar ve web araması kullanılabiliyor. Videoda sadece konuşulan mekanlar, ekran görüntüsü eklenmedikçe bulunamaz.
 - **Instagram:** Giriş yapmadan gönderi ve yorumlar genelde açılmıyor; resmi API başkasının gönderisini okumaya izin vermiyor. Çözüm ekran görüntüsü yüklemek; arayüz Instagram linki görünce bunu öneriyor.
@@ -176,7 +189,7 @@ Git geçmişinden çıkarılanlar:
 ## Açık işler / kullanıcının yapacakları
 - [ ] **Firebase Console → Realtime Database → Rules:** `database.rules.json`'un son halini yapıştırıp **Publish** et. Bu oturumdaki tüm kural değişiklikleri buna bağlı (anahtar kaydı, görevler, fotoğraf).
 - [ ] Claude API anahtarını ana sayfadan bir parolayla kaydet ve ilk gerçek denemeyi yap (Öner, Liste / link + YouTube, ekran görüntüsü, doğrulama).
-- [ ] Barselona planını içe aktar (ekip review ettikten sonra; kullanıcı başlatacak).
+- [ ] Barselona planını içe aktar. Kullanıcı 2026-11-19'da başlattı; 400 hatası düzeltildi (b89f086), yeniden denenecek.
 - [ ] "Faz 3" kapsamı henüz tanımlanmadı.
 
 ## Kararlar özeti
