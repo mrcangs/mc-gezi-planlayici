@@ -53,7 +53,7 @@
         <h2 class="text-sm font-extrabold">${esc(T('admin.import'))}</h2>
         <p class="text-xs muted">${esc(T('admin.importHint'))}</p>
         <form id="importForm" class="space-y-3">
-          <label class="block"><span class="${lbl}">${esc(T('admin.importKey'))}</span><input name="key" required pattern="[A-Za-z0-9_-]{20,}" autocomplete="off" class="${inp} font-mono"></label>
+          <label class="block"><span class="${lbl}">${esc(T('admin.importKey'))}</span><input name="key" required autocomplete="off" spellcheck="false" placeholder="${esc(T('admin.importKeyPh'))}" class="${inp} font-mono"></label>
           <label class="block"><span class="${lbl}">${esc(T('admin.importAs'))}</span>
             <select name="me" class="${inp}"><option value="mertcan">Mertcan</option><option value="elif">Elif</option><option value="atay">Atay</option><option value="alev">Alev</option></select></label>
           <button type="submit" class="w-full h-11 rounded-xl btn-ghost text-sm font-bold"><i class="fa-solid fa-file-import" aria-hidden="true"></i> ${esc(T('admin.importGo'))}</button>
@@ -100,9 +100,18 @@
     if (e.target.id === 'importForm') {
       e.preventDefault();
       const f = new FormData(e.target);
-      importBarcelona(String(f.get('key')).trim(), String(f.get('me')), e.target.querySelector('button'));
+      const key = legacyKey(f.get('key'));
+      if (!key) { $('#importLog').textContent = T('admin.importBadKey'); return; }
+      importBarcelona(key, String(f.get('me')), e.target.querySelector('button'));
     }
   });
+
+  // Eski davet anahtarı: yalnız anahtar ya da eski sitenin tam linki (…/Barcelona/#t=<anahtar>) yapıştırılabilir
+  function legacyKey(v) {
+    v = String(v || '').trim();
+    const m = v.match(/[#?&]t=([A-Za-z0-9_-]{20,})/) || v.match(/^([A-Za-z0-9_-]{20,})$/);
+    return m ? m[1] : '';
+  }
 
   // ---------- Barselona içe aktarma ----------
   // Eski sitenin sabit içeriği (data.js + i18n.js, herkese açık) ve eski veritabanındaki canlı veri
@@ -203,7 +212,11 @@
       def = buildDef(C);
       logLine(`   ${def.pool.length} mekan, ${def.days.length} gün, ${Object.keys(def.people).length} kişi`);
       logLine('2/4 Eski veritabanı okunuyor…');
-      return fetch(`${OLD_DB}/trips/${encodeURIComponent(oldKey)}.json`).then(r => { if (!r.ok) throw new Error('eski veritabanı ' + r.status); return r.json(); });
+      return fetch(`${OLD_DB}/trips/${encodeURIComponent(oldKey)}.json`).then(r => {
+        if (r.ok) return r.json();
+        // Firebase'in kendi mesajı da gösterilsin (ör. "Permission denied", "Invalid path")
+        return r.text().then(t => { let m = ''; try { m = JSON.parse(t).error || ''; } catch (e) {} throw new Error('eski veritabanı ' + r.status + (m ? ': ' + m : '')); });
+      });
     }).then(o => {
       if (!o || !o.slots) throw new Error('eski anahtarla veri bulunamadı');
       old = o;
